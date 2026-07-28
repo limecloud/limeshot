@@ -36,12 +36,14 @@ const ffmpegLog = join(userData, 'ffmpeg-argv.txt');
 const ffmpegPidLog = join(userData, 'ffmpeg-active-pid.txt');
 const ffmpegFixture = join(userData, process.platform === 'win32' ? 'ffmpeg-fixture.exe' : 'ffmpeg-fixture');
 const projectName = 'Gate B project';
-const newProjectName = '新项目';
+const openedProjectName = 'opened-project';
+const openedProjectPath = join(userData, openedProjectName);
 const screenshotDir = process.env.LIMESHOT_SMOKE_SCREENSHOT_DIR;
 let application;
 
 try {
   await mkdir(workspace, { recursive: true });
+  await mkdir(openedProjectPath, { recursive: true });
   await writeWaveFixture(sourceAssetPath);
   compileFfprobeFixture(ffprobeFixture);
   compileFfmpegFixture(ffmpegFixture);
@@ -91,21 +93,17 @@ try {
 
   const newConversationButton = page.locator('.sidebar-actions').getByRole('button', { name: '新建会话' });
   await newConversationButton.click();
-  await page.locator('[data-testid="agent-panel"][data-agent-state="creating"]').waitFor({ timeout: 20_000 });
-  const newConversationDraft = await page.evaluate(() => {
-    const composer = document.querySelector('.composer-field textarea');
+  await page.getByTestId('home-workspace').waitFor({ timeout: 20_000 });
+  const newConversationHome = await page.evaluate(() => {
+    const composer = document.querySelector('.home-composer textarea');
+    const projectSelector = document.querySelector('.composer-selectors select:last-child');
     return {
-      composerEnabled: composer instanceof HTMLTextAreaElement && !composer.disabled,
+      homeVisible: Boolean(document.querySelector('[data-testid="home-workspace"]')),
+      conversationHidden: !document.querySelector('[data-testid="agent-panel"]'),
       composerFocused: document.activeElement === composer,
       oldConversationHidden: !document.body.innerText.includes('Gate B complete'),
-      newConversationDisabled: (document.querySelector('.sidebar-actions button'))?.disabled === true,
+      newProjectSelected: projectSelector instanceof HTMLSelectElement && projectSelector.value === '',
     };
-  });
-  await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
-  const newConversationReady = await page.evaluate(() => {
-    const composer = document.querySelector('.composer-field textarea');
-    return composer instanceof HTMLTextAreaElement && !composer.disabled
-      && document.querySelector('.agent-timeline')?.textContent?.includes('输入制作要求以开始对话');
   });
   await page.locator('.project-nav-item', { hasText: projectName }).click();
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
@@ -169,32 +167,32 @@ try {
   const ffprobeArgv = await readFile(ffprobeLog, 'utf8');
   const ffmpegArgv = await readFile(ffmpegLog, 'utf8');
 
-  await application.evaluate(({ dialog }) => {
+  await application.evaluate(({ dialog }, directoryPath) => {
     globalThis.__limeshotDialogCallCount = 0;
     dialog.showOpenDialog = async () => {
       globalThis.__limeshotDialogCallCount += 1;
-      throw new Error('新建项目不得打开系统目录选择器');
+      return { canceled: false, filePaths: [directoryPath], bookmarks: [] };
     };
-  });
+  }, openedProjectPath);
   await page.getByRole('button', { name: '新建项目' }).click();
-  await page.locator('.project-nav-item', { hasText: newProjectName }).waitFor({ timeout: 20_000 });
+  await page.locator('.project-nav-item', { hasText: openedProjectName }).waitFor({ timeout: 20_000 });
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
   if (await page.locator('.app-action-error').count() !== 0) {
     throw new Error(`新建项目出现 GUI 错误: ${await page.locator('.app-action-error').allTextContents()}`);
   }
   const projectDialogCallCount = await application.evaluate(() => globalThis.__limeshotDialogCallCount ?? -1);
-  if (projectDialogCallCount !== 0) throw new Error(`新建项目错误调用系统目录选择器 ${projectDialogCallCount} 次`);
+  if (projectDialogCallCount !== 1) throw new Error(`新建项目系统目录选择器调用次数错误: ${projectDialogCallCount}`);
 
   await application.close();
   application = await launchElectron(electronLaunchOptions);
   page = await application.firstWindow();
   await page.locator('[data-testid="runtime-status"][data-state="ready"]').waitFor({ timeout: 20_000 });
-  await page.locator('.project-nav-item', { hasText: newProjectName }).click();
+  await page.locator('.project-nav-item', { hasText: openedProjectName }).click();
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
   if (await page.locator('.app-action-error').count() !== 0) {
     throw new Error(`冷启动恢复新项目出现 GUI 错误: ${await page.locator('.app-action-error').allTextContents()}`);
   }
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '05-new-project-after-restart.png') });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '05-opened-project-after-restart.png') });
   await page.locator('.project-nav-item', { hasText: projectName }).click();
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Gate B complete' }).waitFor({ timeout: 60_000 });
@@ -227,7 +225,7 @@ try {
       window.limeShot.agent.startConversation({ projectId: createdProject.projectId, conversationId: 'main' }),
     ]);
     return { history, plans, execution, createdProject, createdProjectDetail, createdConversation };
-  }, { seededName: projectName, createdName: newProjectName });
+  }, { seededName: projectName, createdName: openedProjectName });
   const requests = fixture.requests();
   const firstRequest = JSON.stringify(requests[0] ?? {});
   const secondRequest = JSON.stringify(requests[1] ?? {});
@@ -293,12 +291,13 @@ try {
     && ffmpegArgv.includes('-f\nmp4')
     && ffmpegArgv.includes(join(workspace, 'assets'))
     && ffmpegArgv.includes('.part');
-  const newProjectCreated = semanticEvidence.createdProject.workspaceName === newProjectName
+  const directoryProjectOpened = semanticEvidence.createdProject.workspaceName === openedProjectName
     && semanticEvidence.createdProjectDetail.brief.content.subject === ''
     && semanticEvidence.createdConversation.access === 'active'
     && Boolean(semanticEvidence.createdConversation.threadId)
-    && existsSync(join(userData, 'projects', newProjectName));
-  const newProjectRestoredAfterRestart = semanticEvidence.createdConversation.turns.length === 0;
+    && existsSync(openedProjectPath)
+    && !existsSync(join(userData, 'projects', openedProjectName));
+  const openedProjectRestoredAfterRestart = semanticEvidence.createdConversation.turns.length === 0;
   const gateEvidence = {
     hasPreload: foundationEvidence.hasPreload,
     businessSource: evidence.source === 'business-service',
@@ -327,10 +326,9 @@ try {
     transcodeProgressVisible: transcodeProgressBeforeCancel > 0 && transcodeProgressBeforeCancel < 100,
     ffmpegProcessReaped,
     partialOutputsCleaned,
-    newConversationDraft: Object.values(newConversationDraft).every(Boolean),
-    newConversationReady,
-    newProjectCreated,
-    newProjectRestoredAfterRestart,
+    newConversationHome: Object.values(newConversationHome).every(Boolean),
+    directoryProjectOpened,
+    openedProjectRestoredAfterRestart,
   };
   if (Object.values(gateEvidence).some((value) => !value)) {
     throw new Error(`Gate B 证据不完整: ${JSON.stringify(gateEvidence)}`);
@@ -359,11 +357,10 @@ try {
     transcodeProgressBeforeCancel,
     ffmpegProcessReaped,
     partialOutputsCleaned,
-    newConversationDraft,
-    newConversationReady,
+    newConversationHome,
     importDialogCallCount,
-    newProjectCreated,
-    newProjectRestoredAfterRestart,
+    directoryProjectOpened,
+    openedProjectRestoredAfterRestart,
     projectDialogCallCount,
     approvalReceiptId,
     gateEvidence,

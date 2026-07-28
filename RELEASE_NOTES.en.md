@@ -30,6 +30,7 @@ Simplified Chinese release notes are the primary version.
 
 ### Testing and quality
 
+- Official DMG, ZIP, and SHA-256 assets are now built, verified, and published by GitHub Actions on a pinned Node 22 / macOS arm64 runner; local packages are no longer accepted as Release assets.
 - `npm run verify:local` passes version, governance, resource, type, protocol, Artifact schema, full Rust, release build, and real Electron Gate B checks.
 - React regression coverage includes 9 test files and 23 tests; the Projects repository includes 19 tests.
 - The real Gate B covers Codex dynamic tools, GUI plan approval, asset import, media probe, transcode, cancellation, retry, passing QA, delivery confirmation, and full cold-start recovery.

@@ -1,9 +1,9 @@
 import { rmdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron';
 
 import { BusinessRpcError } from '@business/index';
-import type { ApprovalDecideParams, BriefUpdateParams, DeliverableConfirmParams, ProjectCreateParams, TaskCancelParams, TaskRetryParams, TaskStartParams } from '@business/generated';
+import type { ApprovalDecideParams, BriefInput, BriefUpdateParams, DeliverableConfirmParams, ProjectCreateParams, TaskCancelParams, TaskRetryParams, TaskStartParams } from '@business/generated';
 import { CodexRpcError, type CodexDynamicTool } from '@codex/index';
 import {
   DESKTOP_IPC,
@@ -11,6 +11,7 @@ import {
   type ConversationStartResult,
   type FoundationProjection,
   type ProjectCreateInput,
+  type ProjectOpenInput,
   type TurnInterruptInput,
   type TurnStartInput,
   type TurnStartResult,
@@ -78,18 +79,7 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
       name: workspace.name,
       profileId: input.profileId,
       workspacePath: workspace.path,
-      brief: {
-        subject: input.initialSubject?.trim() ?? '',
-        audience: '',
-        platform: '',
-        targetDurationSeconds: null,
-        aspectRatio: '',
-        language: input.language,
-        style: '',
-        mustInclude: [],
-        prohibited: [],
-        deliveryFormat: 'mp4',
-      },
+      brief: createBrief(input.language, input.initialSubject),
     };
     try {
       return business.request('project/create', params);
@@ -97,6 +87,22 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
       await rmdir(workspace.path).catch(() => undefined);
       throw error;
     }
+  });
+  ipcMain.handle(DESKTOP_IPC.projectOpen, async (event, input: ProjectOpenInput) => {
+    if (!input || typeof input.profileId !== 'string' || typeof input.language !== 'string') throw new Error('无效的项目打开参数');
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: OpenDialogOptions = { properties: ['openDirectory', 'createDirectory'] };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length !== 1) return null;
+    const workspacePath = result.filePaths[0];
+    return business.request('project/create', {
+      name: basename(workspacePath),
+      profileId: input.profileId,
+      workspacePath,
+      brief: createBrief(input.language),
+    });
   });
 
   ipcMain.handle(DESKTOP_IPC.conversationStart, (_event, input: ConversationStartInput): Promise<ConversationStartResult> => {
@@ -170,6 +176,21 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
   return () => {
     unsubscribe();
     for (const channel of Object.values(DESKTOP_IPC).filter((channel) => channel !== DESKTOP_IPC.agentEvent)) ipcMain.removeHandler(channel);
+  };
+}
+
+function createBrief(language: string, initialSubject?: string): BriefInput {
+  return {
+    subject: initialSubject?.trim() ?? '',
+    audience: '',
+    platform: '',
+    targetDurationSeconds: null,
+    aspectRatio: '',
+    language,
+    style: '',
+    mustInclude: [],
+    prohibited: [],
+    deliveryFormat: 'mp4',
   };
 }
 

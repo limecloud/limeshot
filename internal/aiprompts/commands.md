@@ -20,7 +20,7 @@ Renderer 只看产品语义：
 | Domain | Renderer API | Main route |
 | --- | --- | --- |
 | Foundation | `foundation.read` | Rust status/catalog 聚合投影 |
-| Project | `project.create`、`project.list`、`project.read`、`project.updateBrief` | Rust business client |
+| Project | `project.create`、`project.open`、`project.list`、`project.read`、`project.updateBrief` | `project.open` 先经 Electron 系统目录选择器；其余调用与选中结果经 Rust business client |
 | Conversation | `agent.startConversation` | Codex client + Rust binding |
 | Turn | `agent.startTurn`、`agent.interrupt`、`agent.subscribe` | Codex client |
 | Catalog | 包含在 `foundation.read` | Rust business client |
@@ -33,7 +33,9 @@ Renderer 只看产品语义：
 
 Renderer 不得提交任意 Codex method、Rust JSON-RPC method、可执行文件、脚本路径、环境变量、provider request 或 FFmpeg argv。
 
-`project.create` 是“创建受管 Project 并进入会话”的语义命令：Renderer 只提交 `profileId/language/initialSubject?`，Electron 在应用数据区分配受管 workspace，再构造 Rust `project/create` 参数。该命令不得打开系统目录选择器。选择或导入外部目录必须使用未来独立的显式 semantic API，不能劫持“新建项目”。禁止恢复 Renderer 自定义项目表单或提交 raw workspace path。
+`project.create` 是“从首页需求创建受管 Project 并进入会话”的语义命令：Renderer 只提交 `profileId/language/initialSubject?`，Electron 在应用数据区分配受管 workspace，再构造 Rust `project/create` 参数。该命令不得打开系统目录选择器。
+
+`project.open` 是侧栏“新建项目”的目录项目语义命令：Renderer 只提交 `profileId/language`，Electron 打开系统目录选择器；取消选择返回 `null`，选中一个目录后由 Electron 使用目录 basename 和绝对路径构造 Rust `project/create` 参数。目录路径不得经过 preload 返回 Renderer，也不得恢复自定义项目表单。
 
 `conversation/bind` 的唯一键是 `(projectId, conversationId)`；不同 Project 可以同时使用默认 `conversationId=main`。首次绑定必须传 `expectedCodexThreadId=null`。只有 Electron 已从 Codex 收到明确的空 Thread 未持久化错误时，才可传旧 thread id 做 compare-and-swap 替换；普通 resume/read 错误不得触发覆盖。
 

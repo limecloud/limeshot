@@ -37,7 +37,7 @@ import { PlanPanel } from './PlanPanel';
 import { WorkspaceHome } from './WorkspaceHome';
 
 type LoadState = 'loading' | 'ready' | 'unavailable';
-type ConversationLoadState = 'idle' | 'creating' | 'loading' | 'ready' | 'readOnly' | 'unavailable';
+type ConversationLoadState = 'idle' | 'loading' | 'ready' | 'readOnly' | 'unavailable';
 const MAIN_CONVERSATION_ID = 'main';
 
 export function App() {
@@ -67,8 +67,7 @@ export function App() {
   const [actionError, setActionError] = useState<string>();
   const [composerText, setComposerText] = useState('');
   const [sending, setSending] = useState(false);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
-  const pendingFirstTurn = useRef<{ projectId: string; conversationId: string; text: string } | undefined>(undefined);
+  const pendingFirstTurn = useRef<{ projectId: string; text: string } | undefined>(undefined);
 
   const load = useCallback(async () => {
     setLoadState('loading');
@@ -132,19 +131,14 @@ export function App() {
       return undefined;
     }
     let disposed = false;
-    const creatingConversation = conversationId !== MAIN_CONVERSATION_ID;
-    setConversationLoadState(creatingConversation ? 'creating' : 'loading');
+    setConversationLoadState('loading');
     void window.limeShot.agent.startConversation({ projectId: selectedProjectId, conversationId })
       .then((result) => {
         if (disposed) return;
         setConversation(result);
         setConversationLoadState(result.access === 'active' ? 'ready' : 'readOnly');
         const pending = pendingFirstTurn.current;
-        if (
-          pending?.projectId === selectedProjectId
-          && pending.conversationId === result.conversationId
-          && result.access === 'active'
-        ) {
+        if (pending?.projectId === selectedProjectId && result.access === 'active') {
           pendingFirstTurn.current = undefined;
           setSending(true);
           void window.limeShot.agent.startTurn({
@@ -160,20 +154,11 @@ export function App() {
       .catch((error) => {
         if (disposed) return;
         console.error('Failed to start Codex conversation', error);
-        const pending = pendingFirstTurn.current;
-        if (pending?.projectId === selectedProjectId && pending.conversationId === conversationId) {
-          pendingFirstTurn.current = undefined;
-          setSending(false);
-        }
         setConversationLoadState('unavailable');
         setAgentError(t('agent.unavailable'));
       });
     return () => { disposed = true; };
   }, [conversationId, selectedProjectId, t]);
-
-  useEffect(() => {
-    if (conversationLoadState === 'creating') composerRef.current?.focus();
-  }, [conversationLoadState]);
 
   useEffect(() => window.limeShot.agent.subscribe((event) => {
     if (event.type === 'agent.error') {
@@ -199,10 +184,10 @@ export function App() {
     : undefined;
   const activeTurn = conversation ? runningTurn(conversation.turns) : undefined;
   const conversationTitle = titleFromTurns(conversation?.turns ?? [], t('agent.newConversation'));
-  const conversationAcceptsInput = conversationLoadState === 'ready' || conversationLoadState === 'creating';
   const canSend = Boolean(
     selectedProject
-    && conversationAcceptsInput
+    && conversation
+    && conversationLoadState === 'ready'
     && !activeTurn
     && !sending
     && composerText.trim(),
@@ -215,20 +200,12 @@ export function App() {
     setConversationId(MAIN_CONVERSATION_ID);
     setProjectInspectorOpen(false);
     setComposerText(initialSubject);
-    if (initialSubject) {
-      pendingFirstTurn.current = {
-        projectId: result.project.projectId,
-        conversationId: MAIN_CONVERSATION_ID,
-        text: initialSubject,
-      };
-    }
+    if (initialSubject) pendingFirstTurn.current = { projectId: result.project.projectId, text: initialSubject };
   };
 
   const openProject = (projectId: string) => {
     const project = projects.find((item) => item.projectId === projectId);
     if (project) setSelectedProfileId(project.profileId);
-    pendingFirstTurn.current = undefined;
-    setSending(false);
     setSelectedProjectId(projectId);
     setConversationId(MAIN_CONVERSATION_ID);
     setProjectInspectorOpen(false);
@@ -253,6 +230,23 @@ export function App() {
     }
   };
 
+  const openProjectDirectory = async () => {
+    if (!selectedProfile || creatingProject) return;
+    setCreatingProject(true);
+    setActionError(undefined);
+    try {
+      const result = await window.limeShot.project.open({
+        profileId: selectedProfile.profileId,
+        language: locale,
+      });
+      if (result) onProjectCreated(result, '');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : t('project.createFailed'));
+    } finally {
+      setCreatingProject(false);
+    }
+  };
+
   const beginFromHome = () => {
     const subject = composerText.trim();
     if (!subject) return;
@@ -260,39 +254,24 @@ export function App() {
   };
 
   const startNewConversation = () => {
-    if (!selectedProjectId) {
-      void createProject();
-      return;
-    }
-    if (conversationLoadState === 'creating') return;
     pendingFirstTurn.current = undefined;
-    setConversation(undefined);
-    setConversationLoadState('creating');
-    setConversationId(`conversation-${crypto.randomUUID()}`);
+    setSending(false);
+    setSelectedProjectId(undefined);
+    setConversationId(MAIN_CONVERSATION_ID);
     setProjectInspectorOpen(false);
     setAgentError(undefined);
     setComposerText('');
   };
 
   const sendTurn = async () => {
-    if (!selectedProject || !canSend) return;
-    const text = composerText.trim();
-    if (!conversation) {
-      pendingFirstTurn.current = {
-        projectId: selectedProject.projectId,
-        conversationId,
-        text,
-      };
-      setSending(true);
-      return;
-    }
+    if (!selectedProject || !conversation || !canSend) return;
     setSending(true);
     setAgentError(undefined);
     try {
       await window.limeShot.agent.startTurn({
         projectId: selectedProject.projectId,
         conversationId: conversation.conversationId,
-        text,
+        text: composerText.trim(),
       });
       setComposerText('');
     } catch (error) {
@@ -320,20 +299,12 @@ export function App() {
           selectedProjectId={selectedProjectId}
           conversationTitle={conversationTitle}
           creatingProject={creatingProject}
-          creatingConversation={conversationLoadState === 'creating'}
           searchOpen={searchOpen}
           searchQuery={searchQuery}
           footer={<RuntimeStatus loadState={loadState} runtime={runtime} errorMessage={errorMessage} onRetry={load} t={t} />}
-          onHome={() => {
-            pendingFirstTurn.current = undefined;
-            setSending(false);
-            setSelectedProjectId(undefined);
-            setConversationId(MAIN_CONVERSATION_ID);
-            setProjectInspectorOpen(false);
-            setComposerText('');
-          }}
+          onHome={startNewConversation}
           onNewConversation={startNewConversation}
-          onNewProject={() => void createProject()}
+          onNewProject={() => void openProjectDirectory()}
           onSearchOpenChange={setSearchOpen}
           onSearchQueryChange={setSearchQuery}
           onProjectSelect={openProject}
@@ -372,12 +343,11 @@ export function App() {
               <footer className="composer-shell">
                 <div className="composer-field">
                   <textarea
-                    ref={composerRef}
                     aria-label={t('agent.inputPlaceholder')}
                     placeholder={t('agent.inputPlaceholder')}
                     value={composerText}
                     rows={2}
-                    disabled={!conversationAcceptsInput || Boolean(activeTurn) || sending}
+                    disabled={conversationLoadState !== 'ready' || Boolean(activeTurn) || sending}
                     onChange={(event) => setComposerText(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && !event.shiftKey && canSend) {

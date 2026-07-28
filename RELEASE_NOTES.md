@@ -28,6 +28,7 @@
 
 ### 测试与质量
 
+- 正式 DMG、ZIP 与 SHA-256 改由 GitHub Actions 在固定 Node 22 / macOS arm64 runner 上构建、校验并发布，本地包不再作为 Release 资产来源。
 - `npm run verify:local` 全量通过，覆盖版本、治理、资源、类型、协议、Artifact schema、全 Rust、release build 与真实 Electron Gate B。
 - React 回归共 9 个测试文件、23 项测试；Projects repository 共 19 项测试。
 - 真实 Gate B 覆盖 Codex 动态工具、GUI 计划审批、素材导入、媒体探测、转码、取消、重试、passing QA、交付确认与完整冷启动恢复。

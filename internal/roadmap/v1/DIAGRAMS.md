@@ -79,16 +79,27 @@ sequenceDiagram
     actor User as 用户
     participant UI as Renderer
     participant Host as Electron Main
+    participant Picker as 系统目录选择器
     participant Biz as Rust Business Service
     participant Codex as Codex App Server
 
-    opt 尚无 Project
-        User->>UI: 选择 Profile，输入需求或点击新建项目
+    alt 首页提交首个需求
+        User->>UI: 选择 Profile，输入需求
         UI->>Host: project.create(profileId, language, initialSubject?)
         Host->>Host: 创建应用数据区受管 workspace
         Host->>Biz: project/create(name, managed workspace, incomplete Brief)
         Biz-->>Host: Project + Brief v1
         Host-->>UI: Project created
+    else 侧栏新建项目
+        User->>UI: 点击新建项目
+        UI->>Host: project.open(profileId, language)
+        Host->>Picker: showOpenDialog(openDirectory)
+        Picker-->>Host: selected directory or canceled
+        opt 已选择一个目录
+            Host->>Biz: project/create(basename, selected directory, incomplete Brief)
+            Biz-->>Host: Project + Brief v1
+            Host-->>UI: Project opened
+        end
     end
     User->>UI: 进入 Project 或新建 Conversation
     UI->>Host: agent.startConversation(projectId, conversationId)
@@ -105,7 +116,7 @@ sequenceDiagram
     end
 ```
 
-Renderer 不提交任意 workspace path，也不显示自定义项目表单。Electron 在应用数据区分配受管 workspace；Rust 创建 Project/Brief 并只保存 `thread.id` 绑定，不保存 Thread 内容。系统目录选择器只属于未来明确的外部目录导入入口，不得出现在“新建项目”。
+Renderer 不提交或接收任意 workspace path，也不显示自定义项目表单。首页需求由 Electron 在应用数据区分配受管 workspace；侧栏“新建项目”由 Electron 系统目录选择器获得目录，并直接传给 Rust 创建 Project/Brief。Rust 只保存 `thread.id` 绑定，不保存 Thread 内容；用户取消目录选择时不创建 Project 或 Conversation。
 
 ## 5. Turn 与动态工具时序图
 

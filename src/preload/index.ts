@@ -8,6 +8,7 @@ import {
   type DesktopApi,
   type FoundationProjection,
   type ProjectCreateInput,
+  type ProjectOpenInput,
   type TurnInterruptInput,
   type TurnStartInput,
   type TurnStartResult,
@@ -37,6 +38,7 @@ const api: DesktopApi = {
   foundation: { read: (): Promise<FoundationProjection> => ipcRenderer.invoke(DESKTOP_IPC.foundationRead) },
   project: {
     create: (input: ProjectCreateInput): Promise<ProjectCreateResult> => ipcRenderer.invoke(DESKTOP_IPC.projectCreate, input),
+    open: (input: ProjectOpenInput): Promise<ProjectCreateResult | null> => ipcRenderer.invoke(DESKTOP_IPC.projectOpen, input),
     list: (): Promise<ProjectSummary[]> => ipcRenderer.invoke(DESKTOP_IPC.projectList),
     read: (projectId: string): Promise<ProjectReadResult> => ipcRenderer.invoke(DESKTOP_IPC.projectRead, projectId),
     updateBrief: (params: BriefUpdateParams): Promise<BriefUpdateResult> => ipcRenderer.invoke(DESKTOP_IPC.briefUpdate, params),

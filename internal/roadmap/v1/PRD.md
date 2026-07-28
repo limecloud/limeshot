@@ -296,23 +296,32 @@ Deliverable 不是文件副本，而是用户确认的交付记录：
 
 ## 7. 核心任务流
 
-### 7.1 首次创建项目
+### 7.1 首次创建或打开项目
 
 ```text
 打开 LimeShot
   -> 选择五类 Business Profile 之一
-  -> 在首页输入首个制作需求，或直接点击新建项目
+  -> 在首页输入首个制作需求
   -> Electron 自动分配受管 workspace
   -> 创建 Project 与 incomplete Brief
   -> 立即进入 Codex Conversation
-  -> 如首页已有需求，自动发送为首个 Turn
+  -> 自动发送需求为首个 Turn
+
+或
+
+点击侧栏“新建项目”
+  -> Electron 打开系统目录选择器
+  -> 用户选择或新建一个目录
+  -> 以该目录创建 Project 与 incomplete Brief
+  -> 立即进入 Codex Conversation
 ```
 
 要求：
 
 - 首屏必须让用户先理解“做什么”，不要求先选模型或 runtime。
-- 新建项目不得弹出系统目录选择器；workspace 必须由 Electron 在应用数据区创建和授权，Renderer 不提交任意路径。
-- 打开或导入外部目录属于独立用户动作，必须使用单独入口和系统目录选择器，不能混入“新建项目”。
+- 首页提交需求不得弹出系统目录选择器；workspace 必须由 Electron 在应用数据区创建和授权。
+- 侧栏“新建项目”必须打开系统目录选择器；用户取消时不得创建 Project 或 Conversation。
+- Renderer 在两条路径中都不提交任意 workspace path；目录项目的选中路径只存在于 Electron Main 与 Rust Business Service 边界内。
 - 不显示自定义“项目名称 + 内容目标”创建弹窗；Brief 缺口由 Conversation 收集，并可在项目详情中结构化编辑。
 - 若资源尚未准备完成，可进入只读项目，但 Agent 和媒体动作显示不可用原因。
 
@@ -536,7 +545,7 @@ TaskRun 不复制 Codex Turn 或维护第二套 Agent stage DAG。本地媒体�
 
 ```text
 新建会话
-新建项目
+新建项目（选择本地目录）
 搜索
 
 项目
@@ -561,7 +570,7 @@ TaskRun 不复制 Codex Turn 或维护第二套 Agent stage DAG。本地媒体�
 - `口播视频`
 - `电商视频`
 
-选中 Profile 后，下方区域展示其目标、业务提示和交付预期。输入器显示当前 Profile 与 Project；提交首个需求时由 Electron 自动创建受管 workspace 和 Project，启动 Conversation 并发送首个 Turn，不弹系统目录选择器。需要用户取舍时，可展示由 catalog 验证的同一 capability 候选方案，但不暴露 provider 私有 task code。账户、余额与充值只有在真实 Cost/Account owner 落地后才进入默认 GUI，不显示假入口。
+选中 Profile 后，下方区域展示其目标、业务提示和交付预期。输入器显示当前 Profile 与 Project；提交首个需求时由 Electron 自动创建受管 workspace 和 Project，启动 Conversation 并发送首个 Turn，不弹系统目录选择器。侧栏“新建项目”是独立的本地目录入口。需要用户取舍时，可展示由 catalog 验证的同一 capability 候选方案，但不暴露 provider 私有 task code。账户、余额与充值只有在真实 Cost/Account owner 落地后才进入默认 GUI，不显示假入口。
 
 ### 10.3 项目工作区
 

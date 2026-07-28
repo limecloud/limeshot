@@ -104,6 +104,7 @@ export function WorkspaceHome({
 
         <section className="home-composer">
           <textarea
+            autoFocus
             value={composerText}
             onChange={(event) => onComposerTextChange(event.target.value)}
             onKeyDown={(event) => {

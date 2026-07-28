@@ -1,0 +1,262 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to release (for example v0.2.0)"
+        required: true
+        default: "v0.2.0"
+      source_ref:
+        description: "Git ref to build (defaults to the triggering ref)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_NET_RETRY: 10
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare_release:
+    name: Prepare GitHub Release
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref || github.ref }}
+
+      - name: Validate release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.version || github.ref_name }}"
+          version="$(node -p "require('./package.json').version")"
+          test "$tag" = "v$version"
+          git rev-parse --verify "refs/tags/$tag^{commit}"
+
+      - name: Ensure draft Release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.version || github.ref_name }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "LimeShot $tag" \
+              --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --draft \
+              --title "LimeShot $tag" \
+              --notes-file RELEASE_NOTES.md
+          fi
+
+  quality:
+    name: Validate release source
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run release gates
+        run: |
+          npm run verify:app-version
+          npm run typecheck
+          npm run test:contracts
+          npm test
+          npm run test:rust
+
+  build_macos_arm64:
+    name: Build macOS arm64
+    needs:
+      - prepare_release
+      - quality
+    runs-on: macos-15
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve fixed Codex release
+        id: codex
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+
+          const manifest = JSON.parse(readFileSync('resources/codex/manifest.v1.json', 'utf8'));
+          const release = manifest.releases.find((item) => item.platformKey === 'darwin-arm64');
+          if (!release) throw new Error('Codex manifest is missing darwin-arm64');
+          const values = {
+            version: manifest.version,
+            source_url: release.sourceUrl,
+            archive_name: release.archiveName,
+            archive_sha256: release.archiveSha256,
+            executable_name: release.executableName,
+            executable_sha256: release.executableSha256,
+          };
+          for (const [key, value] of Object.entries(values)) {
+            appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
+          }
+          NODE
+
+      - name: Download and verify fixed Codex
+        shell: bash
+        run: |
+          set -euo pipefail
+          codex_dir="$RUNNER_TEMP/codex-${{ steps.codex.outputs.version }}"
+          archive="$codex_dir/${{ steps.codex.outputs.archive_name }}"
+          binary="$codex_dir/${{ steps.codex.outputs.executable_name }}"
+          mkdir -p "$codex_dir"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output "$archive" \
+            "${{ steps.codex.outputs.source_url }}"
+          echo "${{ steps.codex.outputs.archive_sha256 }}  $archive" | shasum -a 256 -c -
+          tar -xzf "$archive" -C "$codex_dir"
+          chmod +x "$binary"
+          echo "${{ steps.codex.outputs.executable_sha256 }}  $binary" | shasum -a 256 -c -
+          test "$("$binary" --version)" = "codex-cli ${{ steps.codex.outputs.version }}"
+          echo "LIMESHOT_CODEX_PACKAGE_BIN=$binary" >> "$GITHUB_ENV"
+
+      - name: Build Electron distributables
+        run: npm run electron:make
+
+      - name: Verify packaged app and archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          app="forge-out/LimeShot-darwin-arm64/LimeShot.app"
+          dmg="forge-out/make/LimeShot-$version-arm64.dmg"
+          zip="forge-out/make/zip/darwin/arm64/LimeShot-darwin-arm64-$version.zip"
+          test -d "$app"
+          test -f "$dmg"
+          test -f "$zip"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
+          test -x "$app/Contents/Resources/bin/codex"
+          test -x "$app/Contents/Resources/bin/business-server"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          hdiutil verify "$dmg"
+          unzip -tq "$zip"
+
+      - name: Stage release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release-assets
+          cp "forge-out/make/LimeShot-$version-arm64.dmg" release-assets/
+          cp "forge-out/make/zip/darwin/arm64/LimeShot-darwin-arm64-$version.zip" release-assets/
+          cd release-assets
+          shasum -a 256 \
+            "LimeShot-$version-arm64.dmg" \
+            "LimeShot-darwin-arm64-$version.zip" > SHA256SUMS.txt
+          shasum -a 256 -c SHA256SUMS.txt
+
+      - name: Upload staged release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-darwin-arm64
+          path: release-assets
+          if-no-files-found: error
+          retention-days: 7
+
+  publish_release:
+    name: Publish GitHub Release
+    needs: build_macos_arm64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref || github.ref }}
+
+      - name: Download staged release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets-darwin-arm64
+          path: release-assets
+
+      - name: Verify downloaded assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          test "$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')" = "3"
+          shasum -a 256 -c SHA256SUMS.txt
+
+      - name: Replace Release assets and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.version || github.ref_name }}"
+          gh release upload "$tag" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+          gh release edit "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "LimeShot $tag" \
+            --notes-file RELEASE_NOTES.md \
+            --draft=false \
+            --latest

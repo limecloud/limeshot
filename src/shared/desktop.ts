@@ -30,6 +30,7 @@ import type {
 export const DESKTOP_IPC = {
   foundationRead: 'foundation:read',
   projectCreate: 'project:create',
+  projectOpen: 'project:open',
   projectList: 'project:list',
   projectRead: 'project:read',
   briefUpdate: 'brief:update',
@@ -63,6 +64,10 @@ export interface ProjectCreateInput {
   profileId: string;
   language: string;
   initialSubject?: string;
+}
+export interface ProjectOpenInput {
+  profileId: string;
+  language: string;
 }
 export type AgentTurnStatus = 'completed' | 'interrupted' | 'failed' | 'inProgress';
 export type AgentItemKind = 'user' | 'assistant' | 'plan' | 'tool' | 'activity';
@@ -100,6 +105,7 @@ export interface DesktopApi {
   foundation: { read(): Promise<FoundationProjection> };
   project: {
     create(input: ProjectCreateInput): Promise<ProjectCreateResult>;
+    open(input: ProjectOpenInput): Promise<ProjectCreateResult | null>;
     list(): Promise<ProjectSummary[]>;
     read(projectId: string): Promise<ProjectReadResult>;
     updateBrief(params: BriefUpdateParams): Promise<BriefUpdateResult>;

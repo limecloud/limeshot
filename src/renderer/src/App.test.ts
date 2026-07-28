@@ -52,10 +52,11 @@ describe('App', () => {
       missingFields: ['subject'], conflicts: [], createdAtEpochMs: 1,
       content: { subject: '', audience: '', platform: '', targetDurationSeconds: null, aspectRatio: '', language: 'zh-CN', style: '', mustInclude: [], prohibited: [], deliveryFormat: 'mp4' },
     };
-    const createProject = vi.fn(async () => ({ project, brief }));
+    const createProject = vi.fn();
+    const openProject = vi.fn(async () => ({ project, brief }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { create: createProject, list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
+      project: { create: createProject, open: openProject, list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
       agent: {
         startConversation: vi.fn(async () => ({ conversationId: 'main', threadId: 'thread-1', turns: [], access: 'active' as const })),
         startTurn: vi.fn(async () => ({ threadId: 'thread-1', turnId: 'turn-1' })),
@@ -74,9 +75,39 @@ describe('App', () => {
     expect(screen.getByTestId('home-workspace')).toBeTruthy();
     expect(screen.getByText('还没有项目')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '新建项目' }));
-    await waitFor(() => expect(createProject).toHaveBeenCalledWith({ profileId: 'general', language: 'zh-CN', initialSubject: undefined }));
+    await waitFor(() => expect(openProject).toHaveBeenCalledWith({ profileId: 'general', language: 'zh-CN' }));
+    expect(createProject).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(await screen.findByTestId('agent-panel')).toBeTruthy();
+  });
+
+  it('keeps the creation workspace unchanged when opening a project is canceled', async () => {
+    Object.defineProperty(window.navigator, 'language', { configurable: true, value: 'zh-CN' });
+    const openProject = vi.fn(async () => null);
+    const startConversation = vi.fn();
+    window.limeShot = {
+      foundation: { read: vi.fn(async () => foundation) },
+      project: { create: vi.fn(), open: openProject, list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
+      agent: {
+        startConversation,
+        startTurn: vi.fn(),
+        interrupt: vi.fn(async () => undefined),
+        subscribe: vi.fn(() => () => undefined),
+      },
+      plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
+      approval: { decide: vi.fn() },
+      ...executionApi,
+    };
+
+    render(React.createElement(App));
+    await screen.findByTestId('home-workspace');
+    fireEvent.click(screen.getByRole('button', { name: '新建项目' }));
+
+    await waitFor(() => expect(openProject).toHaveBeenCalledWith({ profileId: 'general', language: 'zh-CN' }));
+    expect(screen.getByTestId('home-workspace')).toBeTruthy();
+    expect(screen.queryByTestId('agent-panel')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(startConversation).not.toHaveBeenCalled();
   });
 
   it('reads a selected project and saves a versioned Brief through semantic IPC', async () => {
@@ -95,7 +126,7 @@ describe('App', () => {
     const startTurn = vi.fn(async () => ({ threadId: 'thread-1', turnId: 'turn-1' }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { create: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief },
+      project: { create: vi.fn(), open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief },
       agent: { startConversation, startTurn, interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
@@ -116,7 +147,7 @@ describe('App', () => {
     expect(startTurn).toHaveBeenCalledWith({ projectId: 'project-1', conversationId: 'main', text: '生成一个口播制作计划' });
   });
 
-  it('opens a writable new-conversation draft and queues the first turn while Codex starts', async () => {
+  it('opens the creation workspace without starting a thread when a new conversation is requested', async () => {
     Object.defineProperty(window.navigator, 'language', { configurable: true, value: 'zh-CN' });
     const project = {
       projectId: 'project-conversation', name: '会话项目', profileId: 'general', state: 'draft' as const,
@@ -127,29 +158,21 @@ describe('App', () => {
       missingFields: ['subject'], conflicts: [], createdAtEpochMs: 1,
       content: { subject: '', audience: '', platform: '', targetDurationSeconds: null, aspectRatio: '', language: 'zh-CN', style: '', mustInclude: [], prohibited: [], deliveryFormat: 'mp4' },
     };
-    let resolveNewConversation: ((result: { conversationId: string; threadId: string; turns: []; access: 'active' }) => void) | undefined;
-    const startConversation = vi.fn(({ conversationId }: { conversationId: string }) => {
-      if (conversationId === 'main') {
-        return Promise.resolve({
-          conversationId,
-          threadId: 'thread-main',
-          turns: [{
-            id: 'turn-main',
-            status: 'completed' as const,
-            items: [{ id: 'item-main', kind: 'user' as const, text: '旧会话内容' }],
-          }],
-          access: 'active' as const,
-        });
-      }
-      return new Promise<{ conversationId: string; threadId: string; turns: []; access: 'active' }>((resolve) => {
-        resolveNewConversation = resolve;
-      });
-    });
-    const startTurn = vi.fn(async () => ({ threadId: 'thread-new', turnId: 'turn-new' }));
+    const createProject = vi.fn();
+    const startConversation = vi.fn(async () => ({
+      conversationId: 'main',
+      threadId: 'thread-main',
+      turns: [{
+        id: 'turn-main',
+        status: 'completed' as const,
+        items: [{ id: 'item-main', kind: 'user' as const, text: '旧会话内容' }],
+      }],
+      access: 'active' as const,
+    }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { create: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
-      agent: { startConversation, startTurn, interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
+      project: { create: createProject, open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      agent: { startConversation, startTurn: vi.fn(), interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
       ...executionApi,
@@ -162,26 +185,15 @@ describe('App', () => {
     const newConversationButton = screen.getAllByRole('button', { name: '新建会话' })[0];
     fireEvent.click(newConversationButton);
 
-    const composer = screen.getByLabelText('描述要求或补充制作信息') as HTMLTextAreaElement;
-    await waitFor(() => expect(screen.getByTestId('agent-panel').getAttribute('data-agent-state')).toBe('creating'));
-    expect(document.querySelector('.agent-timeline')?.textContent).not.toContain('旧会话内容');
-    expect(composer.disabled).toBe(false);
+    const home = await screen.findByTestId('home-workspace');
+    const composer = screen.getByLabelText('描述制作需求') as HTMLTextAreaElement;
+    expect(home).toBeTruthy();
+    expect(screen.queryByTestId('agent-panel')).toBeNull();
+    expect(composer.value).toBe('');
     expect(document.activeElement).toBe(composer);
-    expect((newConversationButton as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.change(composer, { target: { value: '新会话的第一条消息' } });
-    fireEvent.keyDown(composer, { key: 'Enter', shiftKey: false });
-    expect(startTurn).not.toHaveBeenCalled();
-
-    const newConversationId = startConversation.mock.calls[1]?.[0].conversationId;
-    expect(newConversationId).toMatch(/^conversation-/);
-    resolveNewConversation?.({ conversationId: newConversationId, threadId: 'thread-new', turns: [], access: 'active' });
-    await waitFor(() => expect(startTurn).toHaveBeenCalledWith({
-      projectId: project.projectId,
-      conversationId: newConversationId,
-      text: '新会话的第一条消息',
-    }));
-    await waitFor(() => expect(composer.value).toBe(''));
+    expect(screen.getByRole('combobox', { name: '项目' })).toHaveProperty('value', '');
+    expect(startConversation).toHaveBeenCalledTimes(1);
+    expect(createProject).not.toHaveBeenCalled();
   });
 
   it('creates a managed project and sends the home request as the first Codex turn', async () => {
@@ -199,7 +211,7 @@ describe('App', () => {
     const startTurn = vi.fn(async () => ({ threadId: 'thread-new', turnId: 'turn-new' }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { create: createProject, list: vi.fn(async () => []), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      project: { create: createProject, open: vi.fn(), list: vi.fn(async () => []), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
       agent: {
         startConversation: vi.fn(async () => ({ conversationId: 'main', threadId: 'thread-new', turns: [], access: 'active' as const })),
         startTurn,
@@ -236,7 +248,7 @@ describe('App', () => {
     };
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { create: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      project: { create: vi.fn(), open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
       agent: {
         startConversation: vi.fn(async () => ({
           conversationId: 'main',
