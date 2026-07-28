@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "TimeRange": {
+      "properties": {
+        "endMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "startMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "startMs",
+        "endMs"
+      ],
+      "type": "object"
+    },
+    "TimelineContent": {
+      "properties": {
+        "coveredRanges": {
+          "items": {
+            "$ref": "#/$defs/TimeRange"
+          },
+          "type": "array"
+        },
+        "durationMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "durationMs",
+        "coveredRanges"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://limeshot.dev/schemas/artifacts/source-timeline.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifactType": {
+      "type": "string"
+    },
+    "content": {
+      "$ref": "#/$defs/TimelineContent"
+    },
+    "contentHash": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "string"
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sourceRefs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "projectId",
+    "producer",
+    "sourceRefs",
+    "contentHash",
+    "createdAt",
+    "content"
+  ],
+  "title": "ArtifactEnvelope",
+  "type": "object",
+  "x-artifact-type": "source-timeline.v1"
+}

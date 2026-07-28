@@ -1,0 +1,11 @@
+[package]
+name = "projects"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+business-protocol = { path = "../business-protocol" }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true

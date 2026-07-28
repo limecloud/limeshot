@@ -1,0 +1,69 @@
+{
+  "contracts": [
+    {
+      "artifactType": "script.v1",
+      "nameKey": "artifact.script.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "shot-list.v1",
+      "nameKey": "artifact.shotList.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "source-timeline.v1",
+      "nameKey": "artifact.sourceTimeline.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "source-shot.v1",
+      "nameKey": "artifact.sourceShot.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "entity-registry.v1",
+      "nameKey": "artifact.entityRegistry.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "asset-registry.v1",
+      "nameKey": "artifact.assetRegistry.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "target-shot.v1",
+      "nameKey": "artifact.targetShot.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "dialogue-coverage.v1",
+      "nameKey": "artifact.dialogueCoverage.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "generation-unit.v1",
+      "nameKey": "artifact.generationUnit.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "prompt-manifest.v1",
+      "nameKey": "artifact.promptManifest.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "subtitle.v1",
+      "nameKey": "artifact.subtitle.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "media-manifest.v1",
+      "nameKey": "artifact.mediaManifest.name",
+      "schemaVersion": 1
+    },
+    {
+      "artifactType": "qa-report.v1",
+      "nameKey": "artifact.qaReport.name",
+      "schemaVersion": 1
+    }
+  ]
+}

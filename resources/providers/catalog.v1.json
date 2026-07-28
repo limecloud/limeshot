@@ -1,0 +1,62 @@
+{
+  "catalogVersion": 1,
+  "source": "LimeShot product capability registry",
+  "capabilities": [
+    {
+      "capabilityId": "image.generate",
+      "nameKey": "capability.imageGenerate.name",
+      "inputModalities": ["text", "image"],
+      "outputModalities": ["image"],
+      "availability": "unavailable",
+      "reasonKey": "catalog.providerRequired"
+    },
+    {
+      "capabilityId": "video.generate",
+      "nameKey": "capability.videoGenerate.name",
+      "inputModalities": ["text"],
+      "outputModalities": ["video"],
+      "availability": "unavailable",
+      "reasonKey": "catalog.providerRequired"
+    },
+    {
+      "capabilityId": "video.image_to_video",
+      "nameKey": "capability.imageToVideo.name",
+      "inputModalities": ["text", "image"],
+      "outputModalities": ["video"],
+      "availability": "unavailable",
+      "reasonKey": "catalog.providerRequired"
+    },
+    {
+      "capabilityId": "video.talking_head",
+      "nameKey": "capability.talkingHead.name",
+      "inputModalities": ["text", "image", "audio"],
+      "outputModalities": ["video"],
+      "availability": "unavailable",
+      "reasonKey": "catalog.providerRequired"
+    },
+    {
+      "capabilityId": "audio.tts",
+      "nameKey": "capability.tts.name",
+      "inputModalities": ["text"],
+      "outputModalities": ["audio"],
+      "availability": "unavailable",
+      "reasonKey": "catalog.providerRequired"
+    },
+    {
+      "capabilityId": "audio.asr",
+      "nameKey": "capability.asr.name",
+      "inputModalities": ["audio", "video"],
+      "outputModalities": ["text", "subtitle"],
+      "availability": "unavailable",
+      "reasonKey": "catalog.providerRequired"
+    },
+    {
+      "capabilityId": "video.analyze",
+      "nameKey": "capability.videoAnalyze.name",
+      "inputModalities": ["video"],
+      "outputModalities": ["timeline", "json"],
+      "availability": "unavailable",
+      "reasonKey": "catalog.providerRequired"
+    }
+  ]
+}

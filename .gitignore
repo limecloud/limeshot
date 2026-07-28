@@ -1,0 +1,13 @@
+node_modules/
+!package-lock.json
+dist/
+out/
+forge-out/
+coverage/
+test-results/
+playwright-report/
+rust/target/
+.DS_Store
+*.log
+.limeshot/
+.tmp/

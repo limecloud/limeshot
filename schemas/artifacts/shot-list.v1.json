@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "ShotContent": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "endMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shotId": {
+          "type": "string"
+        },
+        "startMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shotId",
+        "startMs",
+        "endMs",
+        "description"
+      ],
+      "type": "object"
+    },
+    "ShotListContent": {
+      "properties": {
+        "shots": {
+          "items": {
+            "$ref": "#/$defs/ShotContent"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "shots"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://limeshot.dev/schemas/artifacts/shot-list.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifactType": {
+      "type": "string"
+    },
+    "content": {
+      "$ref": "#/$defs/ShotListContent"
+    },
+    "contentHash": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "string"
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sourceRefs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "projectId",
+    "producer",
+    "sourceRefs",
+    "contentHash",
+    "createdAt",
+    "content"
+  ],
+  "title": "ArtifactEnvelope",
+  "type": "object",
+  "x-artifact-type": "shot-list.v1"
+}

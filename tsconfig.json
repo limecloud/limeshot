@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@business/*": ["packages/business-client/src/*"],
+      "@codex/*": ["packages/codex-client/src/*"],
+      "@shared/*": ["src/shared/*"],
+      "@renderer/*": ["src/renderer/src/*"]
+    },
+    "types": ["node", "electron", "vite/client"]
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "forge.config.mjs",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "packages/**/*.ts"
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "catalogVersion": 1,
+  "services": [
+    {
+      "serviceId": "media.probe",
+      "nameKey": "service.mediaProbe.name",
+      "kind": "local",
+      "state": "blocked",
+      "reasonKey": "catalog.ffmpegRequired",
+      "capabilityIds": []
+    },
+    {
+      "serviceId": "media.assemble",
+      "nameKey": "service.mediaAssemble.name",
+      "kind": "local",
+      "state": "blocked",
+      "reasonKey": "catalog.ffmpegRequired",
+      "capabilityIds": []
+    },
+    {
+      "serviceId": "voice.synthesis",
+      "nameKey": "service.voiceSynthesis.name",
+      "kind": "remote",
+      "state": "blocked",
+      "reasonKey": "catalog.providerRequired",
+      "capabilityIds": ["audio.tts"]
+    },
+    {
+      "serviceId": "video.generation",
+      "nameKey": "service.videoGeneration.name",
+      "kind": "remote",
+      "state": "blocked",
+      "reasonKey": "catalog.providerRequired",
+      "capabilityIds": ["video.generate", "video.image_to_video", "video.talking_head"]
+    },
+    {
+      "serviceId": "video.analysis",
+      "nameKey": "service.videoAnalysis.name",
+      "kind": "remote",
+      "state": "blocked",
+      "reasonKey": "catalog.providerRequired",
+      "capabilityIds": ["audio.asr", "video.analyze"]
+    }
+  ]
+}

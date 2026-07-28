@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "AssetRecord": {
+      "properties": {
+        "assetId": {
+          "type": "string"
+        },
+        "assetKind": {
+          "type": "string"
+        },
+        "consentRequired": {
+          "type": "boolean"
+        },
+        "sourceRefs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "assetId",
+        "assetKind",
+        "consentRequired",
+        "sourceRefs"
+      ],
+      "type": "object"
+    },
+    "AssetRegistryContent": {
+      "properties": {
+        "assets": {
+          "items": {
+            "$ref": "#/$defs/AssetRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "assets"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://limeshot.dev/schemas/artifacts/asset-registry.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifactType": {
+      "type": "string"
+    },
+    "content": {
+      "$ref": "#/$defs/AssetRegistryContent"
+    },
+    "contentHash": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "string"
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sourceRefs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "projectId",
+    "producer",
+    "sourceRefs",
+    "contentHash",
+    "createdAt",
+    "content"
+  ],
+  "title": "ArtifactEnvelope",
+  "type": "object",
+  "x-artifact-type": "asset-registry.v1"
+}

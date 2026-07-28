@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "GenerationUnitContent": {
+      "properties": {
+        "capabilityId": {
+          "type": "string"
+        },
+        "durationMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generationUnitId": {
+          "type": "string"
+        },
+        "targetShotRefs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "generationUnitId",
+        "targetShotRefs",
+        "durationMs",
+        "capabilityId"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://limeshot.dev/schemas/artifacts/generation-unit.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifactType": {
+      "type": "string"
+    },
+    "content": {
+      "$ref": "#/$defs/GenerationUnitContent"
+    },
+    "contentHash": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "string"
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sourceRefs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "projectId",
+    "producer",
+    "sourceRefs",
+    "contentHash",
+    "createdAt",
+    "content"
+  ],
+  "title": "ArtifactEnvelope",
+  "type": "object",
+  "x-artifact-type": "generation-unit.v1"
+}

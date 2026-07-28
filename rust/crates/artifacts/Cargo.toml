@@ -1,0 +1,18 @@
+[package]
+name = "artifacts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "generate-artifact-schemas"
+path = "src/bin/generate_artifact_schemas.rs"
+
+[dependencies]
+business-protocol = { path = "../business-protocol" }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,61 @@
+{
+  "name": "limeshot",
+  "productName": "LimeShot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI 内容生产桌面工作台",
+  "type": "module",
+  "main": "out/main/index.js",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "npm run electron:dev",
+    "electron:dev": "node scripts/desktop/dev.mjs",
+    "electron:build": "npm run rust:build:release && electron-vite build",
+    "package:stage": "node scripts/desktop/stage-package.mjs",
+    "electron:package": "npm run electron:build && npm run package:stage && electron-forge package",
+    "electron:make": "npm run electron:build && npm run package:stage && electron-forge make",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:contracts": "npm run protocol:check && npm run artifact:check && vitest run packages/business-client/src packages/codex-client/src",
+    "test:rust": "cargo test --manifest-path rust/Cargo.toml",
+    "test:rust:protocol": "cargo test --manifest-path rust/Cargo.toml -p business-protocol",
+    "test:rust:business": "cargo test --manifest-path rust/Cargo.toml -p business-server",
+    "rust:build": "cargo build --manifest-path rust/Cargo.toml -p business-server",
+    "rust:build:release": "cargo build --release --manifest-path rust/Cargo.toml -p business-server",
+    "protocol:generate": "cargo run --quiet --manifest-path rust/Cargo.toml -p business-protocol --bin generate-business-protocol -- .",
+    "protocol:check": "node scripts/protocol/check.mjs",
+    "artifact:generate": "cargo run --quiet --manifest-path rust/Cargo.toml -p artifacts --bin generate-artifact-schemas -- .",
+    "artifact:check": "node scripts/protocol/check-artifacts.mjs",
+    "resource:check": "node scripts/quality/check-resource-provenance.mjs",
+    "governance:runtime-boundary": "node scripts/quality/check-runtime-boundary.mjs",
+    "verify:gui-smoke": "node scripts/smoke/electron-smoke.mjs",
+    "verify:app-version": "node scripts/quality/check-version.mjs",
+    "verify:local": "npm run verify:app-version && npm run governance:runtime-boundary && npm run resource:check && npm run typecheck && npm run test:contracts && npm run test:rust && npm run electron:build && npm run verify:gui-smoke"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-dmg": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^25.0.8",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "electron": "^42.1.0",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.57.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vitest": "^3.2.4"
+  }
+}

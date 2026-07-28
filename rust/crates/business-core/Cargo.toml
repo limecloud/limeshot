@@ -1,0 +1,15 @@
+[package]
+name = "business-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+business-protocol = { path = "../business-protocol" }
+artifacts = { path = "../artifacts" }
+providers = { path = "../providers" }
+media = { path = "../media" }
+projects = { path = "../projects" }
+resources = { path = "../resources" }
+skills = { path = "../skills" }
+tools = { path = "../tools" }

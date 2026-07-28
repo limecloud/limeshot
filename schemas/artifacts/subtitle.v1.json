@@ -1,0 +1,102 @@
+{
+  "$defs": {
+    "SubtitleContent": {
+      "properties": {
+        "cues": {
+          "items": {
+            "$ref": "#/$defs/SubtitleCue"
+          },
+          "type": "array"
+        },
+        "language": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "language",
+        "cues"
+      ],
+      "type": "object"
+    },
+    "SubtitleCue": {
+      "properties": {
+        "range": {
+          "$ref": "#/$defs/TimeRange"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "range",
+        "text"
+      ],
+      "type": "object"
+    },
+    "TimeRange": {
+      "properties": {
+        "endMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "startMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "startMs",
+        "endMs"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://limeshot.dev/schemas/artifacts/subtitle.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifactType": {
+      "type": "string"
+    },
+    "content": {
+      "$ref": "#/$defs/SubtitleContent"
+    },
+    "contentHash": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "string"
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sourceRefs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "projectId",
+    "producer",
+    "sourceRefs",
+    "contentHash",
+    "createdAt",
+    "content"
+  ],
+  "title": "ArtifactEnvelope",
+  "type": "object",
+  "x-artifact-type": "subtitle.v1"
+}

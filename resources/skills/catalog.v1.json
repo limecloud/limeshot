@@ -1,0 +1,47 @@
+{
+  "catalogVersion": 1,
+  "skills": [
+    {
+      "skillId": "core",
+      "profileId": "all",
+      "nameKey": "skill.core.name",
+      "descriptionKey": "skill.core.description",
+      "instructionPath": "resources/skills/core/SKILL.md"
+    },
+    {
+      "skillId": "universal",
+      "profileId": "general",
+      "nameKey": "skill.universal.name",
+      "descriptionKey": "skill.universal.description",
+      "instructionPath": "resources/skills/universal/SKILL.md"
+    },
+    {
+      "skillId": "short-form",
+      "profileId": "short_form",
+      "nameKey": "skill.shortForm.name",
+      "descriptionKey": "skill.shortForm.description",
+      "instructionPath": "resources/skills/short-form/SKILL.md"
+    },
+    {
+      "skillId": "redraw",
+      "profileId": "visual_transform",
+      "nameKey": "skill.redraw.name",
+      "descriptionKey": "skill.redraw.description",
+      "instructionPath": "resources/skills/redraw/SKILL.md"
+    },
+    {
+      "skillId": "talking",
+      "profileId": "talking_video",
+      "nameKey": "skill.talking.name",
+      "descriptionKey": "skill.talking.description",
+      "instructionPath": "resources/skills/talking/SKILL.md"
+    },
+    {
+      "skillId": "commerce",
+      "profileId": "commerce_video",
+      "nameKey": "skill.commerce.name",
+      "descriptionKey": "skill.commerce.description",
+      "instructionPath": "resources/skills/commerce/SKILL.md"
+    }
+  ]
+}

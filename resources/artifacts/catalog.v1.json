@@ -1,0 +1,18 @@
+{
+  "catalogVersion": 1,
+  "contracts": [
+    { "artifactType": "script.v1", "schemaVersion": 1, "nameKey": "artifact.script.name" },
+    { "artifactType": "shot-list.v1", "schemaVersion": 1, "nameKey": "artifact.shotList.name" },
+    { "artifactType": "source-timeline.v1", "schemaVersion": 1, "nameKey": "artifact.sourceTimeline.name" },
+    { "artifactType": "source-shot.v1", "schemaVersion": 1, "nameKey": "artifact.sourceShot.name" },
+    { "artifactType": "entity-registry.v1", "schemaVersion": 1, "nameKey": "artifact.entityRegistry.name" },
+    { "artifactType": "asset-registry.v1", "schemaVersion": 1, "nameKey": "artifact.assetRegistry.name" },
+    { "artifactType": "target-shot.v1", "schemaVersion": 1, "nameKey": "artifact.targetShot.name" },
+    { "artifactType": "dialogue-coverage.v1", "schemaVersion": 1, "nameKey": "artifact.dialogueCoverage.name" },
+    { "artifactType": "generation-unit.v1", "schemaVersion": 1, "nameKey": "artifact.generationUnit.name" },
+    { "artifactType": "prompt-manifest.v1", "schemaVersion": 1, "nameKey": "artifact.promptManifest.name" },
+    { "artifactType": "subtitle.v1", "schemaVersion": 1, "nameKey": "artifact.subtitle.name" },
+    { "artifactType": "media-manifest.v1", "schemaVersion": 1, "nameKey": "artifact.mediaManifest.name" },
+    { "artifactType": "qa-report.v1", "schemaVersion": 1, "nameKey": "artifact.qaReport.name" }
+  ]
+}

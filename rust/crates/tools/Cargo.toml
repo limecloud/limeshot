@@ -1,0 +1,10 @@
+[package]
+name = "tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+business-protocol = { path = "../business-protocol" }
+projects = { path = "../projects" }
+serde_json.workspace = true

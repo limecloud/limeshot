@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": [
+    "initialize",
+    "business/status/read",
+    "business/shutdown",
+    "business-profile/list",
+    "skill/list",
+    "tool/catalog/list",
+    "tool/call",
+    "artifact/contract/list",
+    "provider/capability/list",
+    "service/list",
+    "project/create",
+    "project/list",
+    "project/read",
+    "project/context/read",
+    "brief/update",
+    "conversation/bind",
+    "conversation/binding/read",
+    "plan/list",
+    "plan/read",
+    "approval/decide",
+    "resource/list"
+  ],
+  "protocolVersion": 1,
+  "requiredEnvelope": [
+    "jsonrpc",
+    "id",
+    "method",
+    "params"
+  ],
+  "title": "LimeShot Business JSON-RPC 2.0"
+}

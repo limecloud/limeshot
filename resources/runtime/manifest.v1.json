@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "resources": [
+    {
+      "resourceId": "node",
+      "kind": "node_runtime",
+      "required": true,
+      "license": "UNRESOLVED",
+      "notice": "The final Node.js distribution and redistribution terms must be approved before packaging.",
+      "releases": []
+    },
+    {
+      "resourceId": "ffmpeg",
+      "kind": "media_runtime",
+      "required": true,
+      "license": "UNRESOLVED",
+      "notice": "The final FFmpeg build, codecs, configure flags and distribution license must be approved before packaging.",
+      "releases": []
+    }
+  ]
+}
