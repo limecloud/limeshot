@@ -12,12 +12,12 @@
 | Electron/preload | semantic allowlist contract + typecheck |
 | Project binding | bind/read、唯一性、restart 后 `thread/resume|read` fixture |
 | ToolHost | catalog/schema/scope/approval/cancel/timeout negative tests |
-| Provider/Media | reconcile、成本、下载、真实 FFprobe/FFmpeg fixture |
+| Provider/Media | reconcile、成本、下载、真实 FFprobe/FFmpeg fixture、确定性 QA、Artifact 完整性负向测试 |
 | GUI 主链 | 真实 Electron Gate B，不使用 production mock |
 
 ## Gate B
 
-Gate B 必须证明真实 Electron、preload/IPC、Codex child、Rust business child、两条独立 stdio 协议、Project binding、一个真实 Turn 和用户可见终态。浏览器投影或单侧 fixture 只能作为 Gate A。
+Gate B 必须证明真实 Electron、preload/IPC、Codex child、Rust business child、两条独立 stdio 协议、Project binding、一个真实 Turn 和用户可见终态。媒体/交付主链还必须覆盖结构化执行、取消或失败、Artifact/QA、GUI semantic confirm 与重启恢复；浏览器投影或单侧 fixture 只能作为 Gate A。
 
 ## 收尾报告
 

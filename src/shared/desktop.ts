@@ -7,14 +7,23 @@ import type {
   BusinessProfile,
   BusinessStatusResult,
   CapabilityDescriptor,
+  DeliverableConfirmParams,
+  DeliverableConfirmResult,
   ManagedResourceDescriptor,
   PlanListResult,
   PlanReadResult,
   ProjectCreateResult,
+  ProjectExecutionReadResult,
   ProjectReadResult,
   ProjectSummary,
   ServiceDescriptor,
   SkillDescriptor,
+  SourceAssetImportResult,
+  TaskCancelParams,
+  TaskCancelResult,
+  TaskRetryParams,
+  TaskStartParams,
+  TaskStartResult,
   ToolDescriptor,
 } from '@business/generated';
 
@@ -31,6 +40,12 @@ export const DESKTOP_IPC = {
   planList: 'plan:list',
   planRead: 'plan:read',
   approvalDecide: 'approval:decide',
+  sourceAssetImport: 'source-asset:import',
+  executionRead: 'execution:read',
+  taskStart: 'task:start',
+  taskCancel: 'task:cancel',
+  taskRetry: 'task:retry',
+  deliverableConfirm: 'deliverable:confirm',
 } as const;
 
 export interface FoundationProjection {
@@ -100,4 +115,14 @@ export interface DesktopApi {
     read(projectId: string, planId: string): Promise<PlanReadResult>;
   };
   approval: { decide(params: ApprovalDecideParams): Promise<ApprovalDecideResult> };
+  sourceAsset: { import(projectId: string): Promise<SourceAssetImportResult | null> };
+  execution: { read(projectId: string): Promise<ProjectExecutionReadResult> };
+  task: {
+    start(params: TaskStartParams): Promise<TaskStartResult>;
+    cancel(params: TaskCancelParams): Promise<TaskCancelResult>;
+    retry(params: TaskRetryParams): Promise<TaskStartResult>;
+  };
+  deliverable: {
+    confirm(params: DeliverableConfirmParams): Promise<DeliverableConfirmResult>;
+  };
 }

@@ -20,6 +20,7 @@ interface AppSidebarProps {
   selectedProjectId?: string;
   conversationTitle: string;
   creatingProject: boolean;
+  creatingConversation: boolean;
   searchOpen: boolean;
   searchQuery: string;
   footer: ReactNode;
@@ -37,6 +38,7 @@ export function AppSidebar({
   selectedProjectId,
   conversationTitle,
   creatingProject,
+  creatingConversation,
   searchOpen,
   searchQuery,
   footer,
@@ -62,8 +64,8 @@ export function AppSidebar({
       </button>
 
       <nav className="sidebar-actions" aria-label={t('nav.primary')}>
-        <button type="button" onClick={onNewConversation}>
-          <MessageSquarePlus size={15} aria-hidden="true" /><span>{t('nav.newConversation')}</span>
+        <button type="button" disabled={creatingConversation} aria-busy={creatingConversation} onClick={onNewConversation}>
+          {creatingConversation ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <MessageSquarePlus size={15} aria-hidden="true" />}<span>{t('nav.newConversation')}</span>
         </button>
         <button type="button" disabled={creatingProject} onClick={onNewProject}>
           {creatingProject ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <FolderPlus size={15} aria-hidden="true" />}<span>{t('nav.newProject')}</span>
@@ -104,7 +106,9 @@ export function AppSidebar({
                   </button>
                   {selected ? (
                     <>
-                      <button className="project-row-command" type="button" onClick={onNewConversation} title={t('nav.newConversation')}><PlusSquare size={13} aria-hidden="true" /></button>
+                      <button className="project-row-command" type="button" disabled={creatingConversation} aria-busy={creatingConversation} onClick={onNewConversation} title={t('nav.newConversation')}>
+                        {creatingConversation ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <PlusSquare size={13} aria-hidden="true" />}
+                      </button>
                     </>
                   ) : null}
                 </div>

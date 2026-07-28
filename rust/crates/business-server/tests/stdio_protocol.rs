@@ -5,6 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use business_protocol::PROTOCOL_VERSION;
 use serde_json::{Value, json};
 
 fn request(stdin: &mut ChildStdin, stdout: &mut BufReader<ChildStdout>, value: Value) -> Value {
@@ -48,7 +49,7 @@ fn standard_json_rpc_serves_business_state_without_agent_methods() {
     let initialized = request(
         &mut stdin,
         &mut stdout,
-        json!({"jsonrpc":"2.0","id":"init","method":"initialize","params":{"clientInfo":{"name":"test","version":"0.1.0"},"protocolVersion":1,"instanceId":"test"}}),
+        json!({"jsonrpc":"2.0","id":"init","method":"initialize","params":{"clientInfo":{"name":"test","version":"0.1.0"},"protocolVersion":PROTOCOL_VERSION,"instanceId":"test"}}),
     );
     assert_eq!(initialized["result"]["serverName"], "limeshot-business");
     writeln!(

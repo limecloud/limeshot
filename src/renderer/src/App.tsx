@@ -31,12 +31,13 @@ import type {
 } from '../../shared/desktop';
 import { AppSidebar } from './AppSidebar';
 import { applyAgentEvent, runningTurn } from './agentState';
+import { ExecutionPanel } from './ExecutionPanel';
 import { createTranslator, isTranslationKey, resolveLocale, type TranslationKey } from './i18n';
 import { PlanPanel } from './PlanPanel';
 import { WorkspaceHome } from './WorkspaceHome';
 
 type LoadState = 'loading' | 'ready' | 'unavailable';
-type ConversationLoadState = 'idle' | 'loading' | 'ready' | 'readOnly' | 'unavailable';
+type ConversationLoadState = 'idle' | 'creating' | 'loading' | 'ready' | 'readOnly' | 'unavailable';
 const MAIN_CONVERSATION_ID = 'main';
 
 export function App() {
@@ -45,6 +46,8 @@ export function App() {
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [runtime, setRuntime] = useState<BusinessStatusResult>();
   const [profiles, setProfiles] = useState<BusinessProfile[]>([]);
+  const [mediaProbeReady, setMediaProbeReady] = useState(false);
+  const [mediaTranscodeReady, setMediaTranscodeReady] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [projectDetail, setProjectDetail] = useState<ProjectReadResult>();
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
@@ -64,7 +67,8 @@ export function App() {
   const [actionError, setActionError] = useState<string>();
   const [composerText, setComposerText] = useState('');
   const [sending, setSending] = useState(false);
-  const pendingFirstTurn = useRef<{ projectId: string; text: string } | undefined>(undefined);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const pendingFirstTurn = useRef<{ projectId: string; conversationId: string; text: string } | undefined>(undefined);
 
   const load = useCallback(async () => {
     setLoadState('loading');
@@ -76,6 +80,8 @@ export function App() {
       ]);
       setRuntime(foundationResult.business);
       setProfiles(foundationResult.profiles);
+      setMediaProbeReady(foundationResult.services.some((service) => service.serviceId === 'media.probe' && service.state === 'ready'));
+      setMediaTranscodeReady(foundationResult.services.some((service) => service.serviceId === 'media.assemble' && service.state === 'ready'));
       setProjects(projectResult);
       setSelectedProfileId((current) => foundationResult.profiles.some((profile) => profile.profileId === current)
         ? current
@@ -126,14 +132,19 @@ export function App() {
       return undefined;
     }
     let disposed = false;
-    setConversationLoadState('loading');
+    const creatingConversation = conversationId !== MAIN_CONVERSATION_ID;
+    setConversationLoadState(creatingConversation ? 'creating' : 'loading');
     void window.limeShot.agent.startConversation({ projectId: selectedProjectId, conversationId })
       .then((result) => {
         if (disposed) return;
         setConversation(result);
         setConversationLoadState(result.access === 'active' ? 'ready' : 'readOnly');
         const pending = pendingFirstTurn.current;
-        if (pending?.projectId === selectedProjectId && result.access === 'active') {
+        if (
+          pending?.projectId === selectedProjectId
+          && pending.conversationId === result.conversationId
+          && result.access === 'active'
+        ) {
           pendingFirstTurn.current = undefined;
           setSending(true);
           void window.limeShot.agent.startTurn({
@@ -149,11 +160,20 @@ export function App() {
       .catch((error) => {
         if (disposed) return;
         console.error('Failed to start Codex conversation', error);
+        const pending = pendingFirstTurn.current;
+        if (pending?.projectId === selectedProjectId && pending.conversationId === conversationId) {
+          pendingFirstTurn.current = undefined;
+          setSending(false);
+        }
         setConversationLoadState('unavailable');
         setAgentError(t('agent.unavailable'));
       });
     return () => { disposed = true; };
   }, [conversationId, selectedProjectId, t]);
+
+  useEffect(() => {
+    if (conversationLoadState === 'creating') composerRef.current?.focus();
+  }, [conversationLoadState]);
 
   useEffect(() => window.limeShot.agent.subscribe((event) => {
     if (event.type === 'agent.error') {
@@ -179,10 +199,10 @@ export function App() {
     : undefined;
   const activeTurn = conversation ? runningTurn(conversation.turns) : undefined;
   const conversationTitle = titleFromTurns(conversation?.turns ?? [], t('agent.newConversation'));
+  const conversationAcceptsInput = conversationLoadState === 'ready' || conversationLoadState === 'creating';
   const canSend = Boolean(
     selectedProject
-    && conversation
-    && conversationLoadState === 'ready'
+    && conversationAcceptsInput
     && !activeTurn
     && !sending
     && composerText.trim(),
@@ -195,12 +215,20 @@ export function App() {
     setConversationId(MAIN_CONVERSATION_ID);
     setProjectInspectorOpen(false);
     setComposerText(initialSubject);
-    if (initialSubject) pendingFirstTurn.current = { projectId: result.project.projectId, text: initialSubject };
+    if (initialSubject) {
+      pendingFirstTurn.current = {
+        projectId: result.project.projectId,
+        conversationId: MAIN_CONVERSATION_ID,
+        text: initialSubject,
+      };
+    }
   };
 
   const openProject = (projectId: string) => {
     const project = projects.find((item) => item.projectId === projectId);
     if (project) setSelectedProfileId(project.profileId);
+    pendingFirstTurn.current = undefined;
+    setSending(false);
     setSelectedProjectId(projectId);
     setConversationId(MAIN_CONVERSATION_ID);
     setProjectInspectorOpen(false);
@@ -236,20 +264,35 @@ export function App() {
       void createProject();
       return;
     }
+    if (conversationLoadState === 'creating') return;
+    pendingFirstTurn.current = undefined;
+    setConversation(undefined);
+    setConversationLoadState('creating');
     setConversationId(`conversation-${crypto.randomUUID()}`);
     setProjectInspectorOpen(false);
+    setAgentError(undefined);
     setComposerText('');
   };
 
   const sendTurn = async () => {
-    if (!selectedProject || !conversation || !canSend) return;
+    if (!selectedProject || !canSend) return;
+    const text = composerText.trim();
+    if (!conversation) {
+      pendingFirstTurn.current = {
+        projectId: selectedProject.projectId,
+        conversationId,
+        text,
+      };
+      setSending(true);
+      return;
+    }
     setSending(true);
     setAgentError(undefined);
     try {
       await window.limeShot.agent.startTurn({
         projectId: selectedProject.projectId,
         conversationId: conversation.conversationId,
-        text: composerText.trim(),
+        text,
       });
       setComposerText('');
     } catch (error) {
@@ -277,10 +320,18 @@ export function App() {
           selectedProjectId={selectedProjectId}
           conversationTitle={conversationTitle}
           creatingProject={creatingProject}
+          creatingConversation={conversationLoadState === 'creating'}
           searchOpen={searchOpen}
           searchQuery={searchQuery}
           footer={<RuntimeStatus loadState={loadState} runtime={runtime} errorMessage={errorMessage} onRetry={load} t={t} />}
-          onHome={() => { setSelectedProjectId(undefined); setConversationId(MAIN_CONVERSATION_ID); setProjectInspectorOpen(false); setComposerText(''); }}
+          onHome={() => {
+            pendingFirstTurn.current = undefined;
+            setSending(false);
+            setSelectedProjectId(undefined);
+            setConversationId(MAIN_CONVERSATION_ID);
+            setProjectInspectorOpen(false);
+            setComposerText('');
+          }}
           onNewConversation={startNewConversation}
           onNewProject={() => void createProject()}
           onSearchOpenChange={setSearchOpen}
@@ -321,11 +372,12 @@ export function App() {
               <footer className="composer-shell">
                 <div className="composer-field">
                   <textarea
+                    ref={composerRef}
                     aria-label={t('agent.inputPlaceholder')}
                     placeholder={t('agent.inputPlaceholder')}
                     value={composerText}
                     rows={2}
-                    disabled={conversationLoadState !== 'ready' || Boolean(activeTurn) || sending}
+                    disabled={!conversationAcceptsInput || Boolean(activeTurn) || sending}
                     onChange={(event) => setComposerText(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && !event.shiftKey && canSend) {
@@ -364,6 +416,8 @@ export function App() {
                     <ProjectOverview
                       detail={selectedProjectDetail}
                       plans={plans}
+                      mediaProbeReady={mediaProbeReady}
+                      mediaTranscodeReady={mediaTranscodeReady}
                       onBriefUpdated={(brief) => setProjectDetail((current) => current ? { ...current, brief } : current)}
                       onPlanUpdated={(plan) => setPlans((current) => current.map((item) => item.planId === plan.planId ? plan : item))}
                       t={t}
@@ -473,12 +527,14 @@ function titleFromTurns(turns: AgentTurnProjection[], fallback: string): string 
 interface ProjectOverviewProps {
   detail: ProjectReadResult;
   plans: ProductionPlan[];
+  mediaProbeReady: boolean;
+  mediaTranscodeReady: boolean;
   onBriefUpdated: (brief: ProjectReadResult['brief']) => void;
   onPlanUpdated: (plan: ProductionPlan) => void;
   t: (key: TranslationKey) => string;
 }
 
-function ProjectOverview({ detail, plans, onBriefUpdated, onPlanUpdated, t }: ProjectOverviewProps) {
+function ProjectOverview({ detail, plans, mediaProbeReady, mediaTranscodeReady, onBriefUpdated, onPlanUpdated, t }: ProjectOverviewProps) {
   const statusKey = `brief.${detail.brief.completeness}` as TranslationKey;
   return (
     <section className="project-overview" data-testid="project-overview">
@@ -494,6 +550,13 @@ function ProjectOverview({ detail, plans, onBriefUpdated, onPlanUpdated, t }: Pr
       </div>
       <BriefEditor brief={detail.brief} onUpdated={onBriefUpdated} t={t} />
       <PlanPanel plans={plans} onPlanUpdated={onPlanUpdated} t={t} />
+      <ExecutionPanel
+        projectId={detail.project.projectId}
+        plans={plans}
+        mediaProbeReady={mediaProbeReady}
+        mediaTranscodeReady={mediaTranscodeReady}
+        t={t}
+      />
     </section>
   );
 }

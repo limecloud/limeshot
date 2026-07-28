@@ -1,9 +1,9 @@
 import { rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron';
 
 import { BusinessRpcError } from '@business/index';
-import type { ApprovalDecideParams, BriefUpdateParams, ProjectCreateParams } from '@business/generated';
+import type { ApprovalDecideParams, BriefUpdateParams, DeliverableConfirmParams, ProjectCreateParams, TaskCancelParams, TaskRetryParams, TaskStartParams } from '@business/generated';
 import { CodexRpcError, type CodexDynamicTool } from '@codex/index';
 import {
   DESKTOP_IPC,
@@ -43,6 +43,30 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
   ipcMain.handle(DESKTOP_IPC.planList, (_event, projectId: string) => business.request('plan/list', { projectId }));
   ipcMain.handle(DESKTOP_IPC.planRead, (_event, projectId: string, planId: string) => business.request('plan/read', { projectId, planId }));
   ipcMain.handle(DESKTOP_IPC.approvalDecide, (_event, params: ApprovalDecideParams) => business.request('approval/decide', params));
+  ipcMain.handle(DESKTOP_IPC.executionRead, (_event, projectId: string) => {
+    if (typeof projectId !== 'string' || !projectId) throw new Error('无效的项目标识');
+    return business.request('project/execution/read', { projectId });
+  });
+  ipcMain.handle(DESKTOP_IPC.taskStart, (_event, params: TaskStartParams) => business.request('task/start', params));
+  ipcMain.handle(DESKTOP_IPC.taskCancel, (_event, params: TaskCancelParams) => business.request('task/cancel', params));
+  ipcMain.handle(DESKTOP_IPC.taskRetry, (_event, params: TaskRetryParams) => business.request('task/retry', params));
+  ipcMain.handle(DESKTOP_IPC.deliverableConfirm, (_event, params: DeliverableConfirmParams) => business.request('deliverable/confirm', params));
+  ipcMain.handle(DESKTOP_IPC.sourceAssetImport, async (event, projectId: string) => {
+    if (typeof projectId !== 'string' || !projectId) throw new Error('无效的项目标识');
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: OpenDialogOptions = {
+      properties: ['openFile'],
+      filters: [
+        { name: 'Media', extensions: ['mp4', 'mov', 'mkv', 'webm', 'wav', 'mp3', 'm4a', 'aac', 'flac', 'png', 'jpg', 'jpeg', 'webp'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length !== 1) return null;
+    return business.request('source-asset/import', { projectId, sourcePath: result.filePaths[0] });
+  });
   ipcMain.handle(DESKTOP_IPC.projectCreate, async (_event, input: ProjectCreateInput) => {
     if (!input || typeof input.profileId !== 'string' || typeof input.language !== 'string') throw new Error('无效的项目创建参数');
     const workspace = await reserveManagedWorkspace(

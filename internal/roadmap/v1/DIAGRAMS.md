@@ -23,7 +23,7 @@ flowchart LR
     TOOL --> NODE[Managed Node tasks]
     TOOL --> PROVIDER[Image / Video / Voice / Analysis Provider]
     TOOL --> MEDIA[Managed FFprobe / FFmpeg]
-    BIZ <--> STORE[(Project / Binding / Plan / Approval / Task / Artifact Store)]
+    BIZ <--> STORE[(Project / Binding / Plan / Approval / Task / Artifact / Deliverable Store)]
 
     CODEX -->|Agent events| HOST
     BIZ -->|Business events| HOST
@@ -204,7 +204,80 @@ sequenceDiagram
 
 计划创建只能走 `plan_create -> tool/call -> ToolHost`；计划审批只能由 GUI 用户动作进入 `approval/decide`。Agent 不拥有 `plan_approve` 工具，也不能把自然语言确认解释为业务批准。
 
-## 8. 业务生产流程图
+## 8. 本地媒体执行时序图
+
+```mermaid
+sequenceDiagram
+    actor User as 用户
+    participant UI as Renderer
+    participant Host as Electron Main
+    participant Biz as Rust Business Service
+    participant Store as Project Repository
+    participant Media as FFprobe / FFmpeg Supervisor
+
+    User->>UI: 导入素材并批准 ProductionPlan
+    UI->>Host: task.start(media_probe)
+    Host->>Biz: task/start
+    Biz->>Store: 校验 receipt / hash / scope
+    Biz->>Media: fixed ffprobe argv
+    Media-->>Biz: structured summary
+    Biz->>Store: media-manifest.v1 + succeeded
+    Biz-->>UI: path-free projection
+
+    User->>UI: 生成 MP4
+    UI->>Host: task.start(media_transcode)
+    Host->>Biz: task/start
+    Biz->>Store: 校验前置任务 + queued -> running
+    Biz-->>UI: running projection
+    Biz->>Media: fixed ffmpeg argv -> .part
+    loop 后台执行
+        Media->>Store: bounded progress
+        UI->>Biz: project/execution/read
+        Biz-->>UI: progress
+    end
+    alt 用户取消
+        UI->>Host: task.cancel(projectId, taskRunId)
+        Host->>Biz: task/cancel
+        Biz->>Media: cancellation token
+        Media->>Media: kill + wait + remove .part
+        Biz->>Store: canceled
+    else timeout / failure
+        Media->>Media: kill + wait + remove .part
+        Biz->>Store: failed(errorCode)
+    else FFmpeg 成功
+        Media->>Media: validate + atomic rename
+        Media->>Media: FFprobe committed output
+        Media-->>Biz: structured output summary
+        Biz->>Biz: deterministic QA
+        alt QA 失败
+            Biz->>Media: remove output
+            Biz->>Store: failed(MEDIA_QA_FAILED)
+        else QA 通过
+            Biz->>Store: atomic media-output.v1 + qa-report.v1 + succeeded
+        end
+    end
+    opt 用户重试 failed / canceled / interrupted
+        User->>UI: 重试任务
+        UI->>Host: task.retry(projectId, taskRunId)
+        Host->>Biz: task/retry
+        Biz->>Store: 校验 Project scope + 终态 + 无后继
+        Biz->>Store: 重验 Plan / receipt / dependency / hash
+        Biz->>Store: new TaskRun(retryOfTaskRunId) + MediaJob
+        Biz->>Media: 复用原 structured operation
+    end
+    opt 用户确认通过 QA 的输出
+        User->>UI: 确认交付
+        UI->>Host: deliverable.confirm(projectId, artifactId)
+        Host->>Biz: deliverable/confirm
+        Biz->>Store: 校验 output / QA 文件大小与 SHA-256
+        Biz->>Store: transaction 切换唯一 current Deliverable
+        Store-->>UI: Deliverable projection
+    end
+```
+
+`task/start`、`task/cancel`、`task/retry` 和 `deliverable/confirm` 都是 GUI 业务动作，不是 Codex dynamic tool。retry 保留旧终态并创建线性后继，不复制 Codex Turn 或另建 workflow DAG。FFmpeg exit、Task 终态、QA Artifact 和 Deliverable 互不替代；Renderer 只看到相对业务对象和进度，绝对路径、进程、codec 与 argv 始终留在 Rust owner。
+
+## 9. 业务生产流程图
 
 ```mermaid
 flowchart TD
@@ -221,17 +294,22 @@ flowchart TD
     I --> J{执行结果}
     J -- 失败或部分成功 --> K[保留成功 Artifact / 定向重试]
     K --> I
-    J -- 成功 --> L[FFprobe + 业务 QA]
-    L --> M{用户确认?}
-    M -- 否 --> E
-    M -- 是 --> N[Deliverable]
+    J -- 成功 --> L[FFprobe + 确定性业务 QA]
+    L --> Q{QA 通过?}
+    Q -- 否 --> R[删除输出 / Task failed]
+    R --> K
+    Q -- 是 --> S[原子登记 media-output.v1 + qa-report.v1]
+    S --> M{用户确认?}
+    M -- 否 --> T[保留可审阅 Artifact]
+    M -- 是 --> N[切换唯一 current Deliverable]
 ```
 
-## 9. 阅读规则
+## 10. 阅读规则
 
 - 总体架构图回答系统组成。
 - 进程图回答谁能启动谁。
 - 启动图回答受管资源如何准备。
 - Conversation、Turn 和恢复图回答 Codex 与 Rust 如何分工。
 - ProductionPlan 时序图回答 Agent 创建与用户审批为何是两条独立入口。
+- 本地媒体执行图回答进度、取消、timeout、文件提交和进程回收由谁负责。
 - 业务图回答从 Brief 到 Deliverable 的成功条件。

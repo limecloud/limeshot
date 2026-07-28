@@ -70,7 +70,7 @@ Agent 负责需求澄清、完整性检查和计划生成。任何计划内媒�
 
 ### 2.7 核心业务流程图
 
-核心业务流程图见[架构与流程图册](./DIAGRAMS.md#7-业务生产流程图)。该图规定 `needs_input`、未批准、素材失效和执行失败均不是成功状态；只有用户确认过的 Artifact 才能成为当前 Deliverable。
+核心业务流程图见[架构与流程图册](./DIAGRAMS.md#9-业务生产流程图)。该图规定 `needs_input`、未批准、素材失效和执行失败均不是成功状态；只有用户确认过的 Artifact 才能成为当前 Deliverable。
 
 ### 2.8 关键时序图
 
@@ -283,11 +283,15 @@ Artifact 类型至少包括：
 - `final_video`
 - `diagnostic_report`
 
+当前媒体竖切的机器合同为 `media-manifest.v1`、`media-output.v1` 与 `qa-report.v1`。`media-output.v1` 和对应 passing `qa-report.v1` 必须属于同一个 TaskRun；FFmpeg exit code、Task success、QA report 与 Deliverable 是不同业务事实。
+
 Deliverable 不是文件副本，而是用户确认的交付记录：
 
 - 指向 Artifact。
 - 固化交付规格和显示名称。
 - 记录关联 Plan 版本与确认时间。
+- 每个 Project 只能有一个 current Deliverable；切换 current 时保留历史记录。
+- 媒体交付确认前重新校验 output 与 QA Artifact 的文件大小和 SHA-256。
 - 导出到 workspace 外时，记录导出结果，不把外部路径当作长期授权。
 
 ## 7. 核心任务流
@@ -432,6 +436,8 @@ Deliverable 不是文件副本，而是用户确认的交付记录：
 | `JOB-03` | 支持取消和失败后从头重试，不承诺断点续转 | P0 |
 | `JOB-04` | 覆盖文件、高耗时或大体积任务必须二次批准 | P0 |
 | `JOB-05` | 任务完成后建立输入、计划、job、输出 Artifact 的 lineage | P0 |
+| `JOB-06` | FFmpeg 成功后必须对已提交输出执行确定性 QA；QA 失败删除输出并将任务标为 failed | P0 |
+| `JOB-07` | QA 通过时原子登记 `media-output.v1` 与 `qa-report.v1`，不得只登记其一 | P0 |
 
 ### 8.8 交付物
 
@@ -442,6 +448,8 @@ Deliverable 不是文件副本，而是用户确认的交付记录：
 | `DLV-03` | 导出前展示文件名、格式、分辨率、时长和目标位置 | P0 |
 | `DLV-04` | 目标已存在时必须明确选择覆盖、更名或取消 | P0 |
 | `DLV-05` | 导出失败不改变 Deliverable 的内部有效性 | P0 |
+| `DLV-06` | 只有带同 TaskRun passing QA 的媒体输出可确认；每个 Project 恰有一个 current Deliverable，旧记录保留 | P0 |
+| `DLV-07` | 确认时重新校验 output/QA Artifact 的大小和 SHA-256，文件缺失或变化时 fail closed | P0 |
 
 ### 8.9 Provider、Task 与成本
 
@@ -506,7 +514,7 @@ draft -> awaiting_approval -> queued -> running
   -> failed / canceling -> canceled / interrupted
 ```
 
-TaskRun 不复制 Codex Turn 或维护第二套 Agent stage DAG。`partially_succeeded` 必须保留成功 ProviderTask、MediaJob 和 Artifact，后续只重试失败 scope。远端 task 已提交但尚未终态时，应用恢复必须先 reconcile，不能重复计费提交。
+TaskRun 不复制 Codex Turn 或维护第二套 Agent stage DAG。本地媒体任务的显式 retry 只接受 `failed/canceled/interrupted`，保留旧记录并创建带 `retryOfTaskRunId` 的新 TaskRun；每个失败节点只有一个直接后继，重试前必须重新校验批准 scope、依赖、素材 hash 和 runtime。`partially_succeeded` 必须保留成功 ProviderTask、MediaJob 和 Artifact，后续只重试失败 scope。远端 task 已提交但尚未终态时，应用恢复必须先 reconcile，不能重复计费提交。
 
 ### 9.5 强制审批点
 
@@ -629,7 +637,7 @@ ProductionPlan 记录用户批准的业务 scope；ToolHost 将具体媒体动�
 
 执行前必须确认：Plan 仍为 approved；Brief、素材与 scope 未失效；输入仍在授权范围；runtime capability 和磁盘空间可用；覆盖与高成本审批已取得。任一检查失败时，任务不得进入 running。
 
-只有实际输出通过 FFprobe/业务 QA 并建立 Artifact 后，系统才能发送完成事件。预期与实际时长、尺寸、codec 或业务范围不一致时，不得创建成功 Deliverable。
+只有实际输出通过 FFprobe/业务 QA，并在同一事务建立 `media-output.v1 + qa-report.v1` 后，Task 才能进入 succeeded。预期与实际容器、时长、文件大小、stream 或 codec 不满足策略时删除输出并记录 `MEDIA_QA_FAILED`。Task succeeded 仍不等于已交付；只有 GUI 用户显式确认且 output/QA 文件 hash 复验通过后，系统才能创建或切换 current Deliverable。
 
 ### 12.1 默认交付预设
 
@@ -690,7 +698,7 @@ v1 先验证闭环是否成立，不用注册数、聊天条数等虚荣指标�
 | --- | --- | --- |
 | `AC-01` | 内容策划闭环 | 任一 Profile 的完整 Brief 可形成脚本、镜头表、素材清单和版本化计划；应用重启后可读取批准版本及 Conversation |
 | `AC-02` | Brief 不完整 | 缺少目标时长和画幅时进入 `needs_input`，不得生成 `ready_for_review` 计划或声称可直接出片 |
-| `AC-03` | 本地媒体闭环 | 受支持素材与 workable Brief 经计划批准后由真实 FFmpeg 处理；GUI 显示进度、预览并确认 final video Deliverable |
+| `AC-03` | 本地媒体闭环 | 受支持素材与 workable Brief 经计划批准后由真实 FFmpeg 处理；GUI 显示进度与 passing QA，用户显式确认后形成唯一 current video Deliverable，重启后可读回 |
 | `AC-04` | 素材不足 | 计划列出缺口和假设；未得到用户取舍前不得进入 approved/executing |
 | `AC-05` | 素材改变 | 计划批准后输入被替换时阻止执行，标记 SourceAsset changed，并要求重新探测和批准 |
 | `AC-06` | 覆盖保护 | 目标已存在时要求覆盖、更名或取消；无活跃窗口或审批超时时不得覆盖 |
@@ -704,6 +712,7 @@ v1 先验证闭环是否成立，不用注册数、聊天条数等虚荣指标�
 | `AC-14` | 口播视频闭环 | 精确稿、授权人物与声音完成片段生成、可选封面/B-roll、字幕、混音和拼接，授权与成本可追溯 |
 | `AC-15` | 电商视频闭环 | 经确认的商品事实完成卖点、镜头、缺失资产、片段、CTA、品牌/事实 QA 和平台交付，不编造价格或功效 |
 | `AC-16` | 成本与恢复 | 批次部分成功后重启先 reconcile，保留成功 Artifact，只重试失败项；重提有新 quote/approval 且不重复计费 |
+| `AC-17` | 交付完整性 | 非媒体输出、缺少 passing QA、output/QA 文件缺失或 hash 改变时拒绝确认，不产生或切换 current Deliverable |
 
 ## 16. 未来机会与进入条件
 
@@ -735,6 +744,7 @@ v1 先验证闭环是否成立，不用注册数、聊天条数等虚荣指标�
 - 未批准 Plan 不得触发计划内媒体执行，批准后修改必须重新审批。
 - 真实 FFmpeg 任务可显示进度、取消、失败、中断和重试状态。
 - 每个 final Artifact 能追溯到 Plan 版本、输入素材和 MediaJob。
+- 每个媒体 final Artifact 都有同 TaskRun passing `qa-report.v1`，QA 失败不留下成功输出。
 - 用户能审阅、确认、导出 Deliverable，且覆盖行为经过批准。
 - TaskRun、ProviderTask、MediaJob、CostQuote、ApprovalReceipt 和 CostLedger 可追溯并支持恢复。
 - 短剧、转绘、口播和电商分别完成一个真实 provider + 本地合成 Gate B。

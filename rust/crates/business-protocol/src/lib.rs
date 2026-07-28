@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+mod execution;
+
+pub use execution::*;
+
+pub const PROTOCOL_VERSION: u32 = 4;
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 pub const INITIALIZE: &str = "initialize";
@@ -25,6 +29,12 @@ pub const CONVERSATION_BINDING_READ: &str = "conversation/binding/read";
 pub const PLAN_LIST: &str = "plan/list";
 pub const PLAN_READ: &str = "plan/read";
 pub const APPROVAL_DECIDE: &str = "approval/decide";
+pub const SOURCE_ASSET_IMPORT: &str = "source-asset/import";
+pub const PROJECT_EXECUTION_READ: &str = "project/execution/read";
+pub const TASK_START: &str = "task/start";
+pub const TASK_CANCEL: &str = "task/cancel";
+pub const TASK_RETRY: &str = "task/retry";
+pub const DELIVERABLE_CONFIRM: &str = "deliverable/confirm";
 pub const RESOURCE_LIST: &str = "resource/list";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -689,7 +699,7 @@ pub fn protocol_schema_bundle() -> Value {
         "title": "LimeShot Business JSON-RPC 2.0",
         "protocolVersion": PROTOCOL_VERSION,
         "requiredEnvelope": ["jsonrpc", "id", "method", "params"],
-        "methods": [INITIALIZE, BUSINESS_STATUS_READ, BUSINESS_SHUTDOWN, BUSINESS_PROFILE_LIST, SKILL_LIST, TOOL_CATALOG_LIST, TOOL_CALL, ARTIFACT_CONTRACT_LIST, PROVIDER_CAPABILITY_LIST, SERVICE_LIST, PROJECT_CREATE, PROJECT_LIST, PROJECT_READ, PROJECT_CONTEXT_READ, BRIEF_UPDATE, CONVERSATION_BIND, CONVERSATION_BINDING_READ, PLAN_LIST, PLAN_READ, APPROVAL_DECIDE, RESOURCE_LIST]
+        "methods": [INITIALIZE, BUSINESS_STATUS_READ, BUSINESS_SHUTDOWN, BUSINESS_PROFILE_LIST, SKILL_LIST, TOOL_CATALOG_LIST, TOOL_CALL, ARTIFACT_CONTRACT_LIST, PROVIDER_CAPABILITY_LIST, SERVICE_LIST, PROJECT_CREATE, PROJECT_LIST, PROJECT_READ, PROJECT_CONTEXT_READ, BRIEF_UPDATE, CONVERSATION_BIND, CONVERSATION_BINDING_READ, PLAN_LIST, PLAN_READ, APPROVAL_DECIDE, SOURCE_ASSET_IMPORT, PROJECT_EXECUTION_READ, TASK_START, TASK_CANCEL, TASK_RETRY, DELIVERABLE_CONFIRM, RESOURCE_LIST]
     })
 }
 

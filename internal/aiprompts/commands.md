@@ -26,6 +26,10 @@ Renderer 只看产品语义：
 | Catalog | 包含在 `foundation.read` | Rust business client |
 | Plan | `plan.list`、`plan.read` | Rust business client |
 | Approval | `approval.decide` | Rust business client；只允许当前 GUI 用户动作 |
+| SourceAsset | `sourceAsset.import` | Electron 系统文件选择器 + Rust 受管 workspace import |
+| Execution | `execution.read` | Rust TaskRun / MediaJob / Artifact / Deliverable projection |
+| Task | `task.start`、`task.cancel`、`task.retry` | Rust structured media operation；只允许当前 GUI 用户动作 |
+| Deliverable | `deliverable.confirm` | Rust QA/hash 复验与 current 切换；只允许当前 GUI 用户动作 |
 
 Renderer 不得提交任意 Codex method、Rust JSON-RPC method、可执行文件、脚本路径、环境变量、provider request 或 FFmpeg argv。
 
@@ -55,9 +59,12 @@ Codex request id、envelope 和错误只存在于 Electron main。不得把上�
 - `project/create|list|read|context/read`、`brief/update`、`conversation/bind|binding/read`；
 - `business-profile/list`、`skill/list`、`tool/catalog/list`、`artifact/contract/list`；
 - `provider/capability/list`、`service/list`、`resource/list`；
-- `plan/list|read`、`approval/decide`、`tool/call`。
+- `plan/list|read`、`approval/decide`、`tool/call`；
+- `source-asset/import`、`project/execution/read`、`task/start|cancel|retry`、`deliverable/confirm`。
 
 `plan_create` 是 Codex dynamic tool，只能经 `tool/call -> ToolHost` 创建 ProductionPlan；不得恢复无 scope 的 raw `plan/create` RPC。`approval/decide` 只从 Renderer semantic API 进入，不注册 `plan_approve` dynamic tool，Agent 不能批准自己的计划。
+
+`task/start|cancel|retry` 与 `deliverable/confirm` 同样只从 Renderer semantic API 进入，不加入 dynamic tool catalog。Task action 不接受任意路径、codec 或 FFmpeg argv；交付确认只接受 Project 内 `media-output.v1` Artifact，并由 Rust 复验同 TaskRun passing QA 与 output/QA 文件 hash。
 
 禁止出现 `thread/*`、`turn/*`、`item/*`、`agent/*`、`mcp/*`、`skill/execute` 或 history/compact/recovery method。Skills catalog 可以读取，Skills 执行归 Codex。
 

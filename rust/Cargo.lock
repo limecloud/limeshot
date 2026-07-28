@@ -75,12 +75,15 @@ dependencies = [
 
 [[package]]
 name = "artifacts"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "business-protocol",
+ "hex",
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
+ "time",
 ]
 
 [[package]]
@@ -100,7 +103,7 @@ dependencies = [
 
 [[package]]
 name = "business-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "artifacts",
  "business-protocol",
@@ -114,7 +117,7 @@ dependencies = [
 
 [[package]]
 name = "business-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -122,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "business-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "business-core",
  "business-protocol",
@@ -220,6 +223,12 @@ dependencies = [
  "generic-array",
  "typenum",
 ]
+
+[[package]]
+name = "deranged"
+version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
 name = "digest"
@@ -347,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "media"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "business-protocol",
  "serde",
@@ -368,6 +377,12 @@ checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
  "windows-sys",
 ]
+
+[[package]]
+name = "num-conv"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441"
 
 [[package]]
 name = "once_cell"
@@ -394,6 +409,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
+name = "powerfmt"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -404,17 +425,19 @@ dependencies = [
 
 [[package]]
 name = "projects"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "business-protocol",
+ "hex",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
 name = "providers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "business-protocol",
  "serde",
@@ -469,7 +492,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "resources"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "business-protocol",
  "hex",
@@ -599,7 +622,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "skills"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "business-protocol",
  "serde",
@@ -650,6 +673,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "time"
+version = "0.3.54"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e1d5e639ff6bab73cb6885cc7e7b1de96c3f32c68ec55f3952614bec1092244"
+dependencies = [
+ "deranged",
+ "num-conv",
+ "powerfmt",
+ "serde_core",
+ "time-core",
+ "time-macros",
+]
+
+[[package]]
+name = "time-core"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
+
+[[package]]
+name = "time-macros"
+version = "0.2.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
+dependencies = [
+ "num-conv",
+ "time-core",
+]
+
+[[package]]
 name = "tokio"
 version = "1.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -673,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "business-protocol",
  "projects",

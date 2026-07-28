@@ -21,9 +21,15 @@
     "plan/list",
     "plan/read",
     "approval/decide",
+    "source-asset/import",
+    "project/execution/read",
+    "task/start",
+    "task/cancel",
+    "task/retry",
+    "deliverable/confirm",
     "resource/list"
   ],
-  "protocolVersion": 1,
+  "protocolVersion": 4,
   "requiredEnvelope": [
     "jsonrpc",
     "id",

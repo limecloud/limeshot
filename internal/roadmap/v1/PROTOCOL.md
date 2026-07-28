@@ -88,7 +88,13 @@ conversation/history/* / context/compact / skill/execute
 
 Rust 中可以存在 `threadId/turnId/callId` 字段作为 ToolCallContext，但不能以此建立 Thread/Turn repository 或状态机。
 
-当前业务 method 以生成的 `schemas/business/protocol.json` 为唯一机器事实源。计划读取和用户审批分别使用 `plan/list|read`、`approval/decide`；计划创建不提供 raw `plan/create`，只能由 `plan_create` dynamic tool 经 `tool/call` 进入 ToolHost。
+当前 Rust business protocol 是 v4，以生成的 `schemas/business/protocol.json` 为唯一机器事实源。计划读取和用户审批分别使用 `plan/list|read`、`approval/decide`；计划创建不提供 raw `plan/create`，只能由 `plan_create` dynamic tool 经 `tool/call` 进入 ToolHost。素材、执行与交付使用 `source-asset/import`、`project/execution/read`、`task/start`、`task/cancel`、`task/retry`、`deliverable/confirm`，这些动作只能来自 GUI 明确操作，不进入 dynamic tool catalog。
+
+`media_probe` 在 `task/start` 请求内完成并返回 Artifact；`media_transcode` 创建后台任务后立即返回 `artifact=null`，GUI 通过 `project/execution/read` 读取进度与终态。`task/cancel` 与 `task/retry` 都只接受 `projectId/taskRunId`：取消在 Project scope 校验后设置取消令牌并等待 FFmpeg kill/wait；重试只接受 `failed/canceled/interrupted`，重新执行全部业务与 runtime 校验并返回新 TaskRun，其中 `retryOfTaskRunId` 指向旧记录。协议不接受任意文件路径、codec 或 argv。
+
+`media_transcode` 的 FFmpeg 进程成功不直接产生 Task success。Rust 必须对原子提交后的输出执行 FFprobe 和确定性 QA；通过时在同一事务登记 `media-output.v1` 与带 `QaReportSummary` 的 `qa-report.v1`，失败时删除输出并记录 `MEDIA_QA_FAILED`。`project/execution/read` 同时返回 `artifacts[]` 与 `deliverables[]`，不得从 Task、Turn 或聊天文本推导 Deliverable。
+
+`deliverable/confirm` 只接受 `{projectId, artifactId}`。目标必须是具有同 TaskRun passing `qa-report.v1` 的 `media-output.v1`；确认前重新校验 output 和 QA Artifact 的大小与 SHA-256。成功后保留历史 Deliverable，并在事务中保证每个 Project 恰有一个 current 记录。同一 Artifact 再确认只切换 current，不复制记录。
 
 `conversation/bind` 保存的业务键是 `(projectId, conversationId)`，`codexThreadId` 全局唯一。`expectedCodexThreadId` 是替换空 Thread binding 的 compare-and-swap 条件：首次绑定传 `null`，替换时必须精确匹配当前值。Rust 只执行原子约束，不解释 Codex Thread 状态。
 
@@ -117,7 +123,7 @@ item/tool/call from Codex
 
 ## 5. Renderer Semantic IPC
 
-preload 当前只暴露 `foundation`、`project`、`agent`、`plan` 和 `approval` 产品语义 API。Electron main 根据 domain 路由到 Codex 或 Rust，Renderer 不知道后端 method 名、request id 或 wire envelope。
+preload 当前只暴露 `foundation`、`project`、`agent`、`plan`、`approval`、`sourceAsset`、`execution`、`task` 和 `deliverable` 产品语义 API。Electron main 根据 domain 路由到 Codex 或 Rust，Renderer 不知道后端 method 名、request id、素材绝对路径或 wire envelope。
 
 新建 Project 的受管 workspace 由 Electron host 在应用数据区创建，不经过系统目录选择器。选择外部目录、导入、导出、外链与凭证读取仍是 host-mediated capability；必须由独立 semantic API、系统对话框、OS keychain 或显式 allowlist 产生。
 
@@ -145,4 +151,4 @@ preload 当前只暴露 `foundation`、`project`、`agent`、`plan` 和 `approva
 - Rust initialize、business methods、unknown method、invalid params、events、EOF/crash。
 - `item/tool/call -> Rust tool/call -> Codex response` 全链 fixture。
 - IPC/preload 不暴露 raw protocol。
-- 真实 Electron 双进程 Gate B，包括 GUI 一键新建受管项目且系统目录选择器调用为零、多 Project 使用同名 `main` 会话和未发言空会话冷重启恢复。
+- 真实 Electron 双进程 Gate B，包括 GUI 一键新建受管项目且系统目录选择器调用为零、多 Project 使用同名 `main` 会话、未发言空会话冷重启恢复、媒体取消/retry、passing QA、用户确认 current Deliverable 及完整重启读回。

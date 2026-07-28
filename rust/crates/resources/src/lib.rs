@@ -44,6 +44,13 @@ impl ResourceManagerError {
         }
     }
 
+    fn access(message: impl Into<String>) -> Self {
+        Self {
+            code: "RESOURCE_ACCESS_FAILED",
+            message: message.into(),
+        }
+    }
+
     pub fn code(&self) -> &'static str {
         self.code
     }
@@ -157,6 +164,22 @@ impl ResourceManager {
         Ok(path)
     }
 
+    pub fn executable_if_ready(
+        &self,
+        resource_id: &str,
+        name: &str,
+    ) -> Result<Option<PathBuf>, ResourceManagerError> {
+        match self.executable(resource_id, name) {
+            Ok(path) => Ok(Some(path)),
+            Err(error)
+                if matches!(error.code(), "RESOURCE_NOT_READY" | "RESOURCE_FILE_MISSING") =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     fn describe(&self, resource: &ManagedResource) -> ManagedResourceDescriptor {
         let Some(release) = resource
             .releases
@@ -265,7 +288,7 @@ fn verify_executable(path: &Path, expected_sha256: &str) -> Result<(), ResourceM
                 message: "受管资源尚未安装".to_owned(),
             }
         } else {
-            ResourceManagerError::unavailable(error.to_string())
+            ResourceManagerError::access(error.to_string())
         }
     })?;
     let mut hasher = Sha256::new();
@@ -273,7 +296,7 @@ fn verify_executable(path: &Path, expected_sha256: &str) -> Result<(), ResourceM
     loop {
         let read = file
             .read(&mut buffer)
-            .map_err(|error| ResourceManagerError::unavailable(error.to_string()))?;
+            .map_err(|error| ResourceManagerError::access(error.to_string()))?;
         if read == 0 {
             break;
         }
@@ -395,7 +418,7 @@ mod tests {
         fs::write(&executable, b"tampered").expect("tamper executable");
         assert_eq!(
             manager
-                .executable("node", "node")
+                .executable_if_ready("node", "node")
                 .expect_err("tampered file")
                 .code(),
             "RESOURCE_INTEGRITY_FAILED"

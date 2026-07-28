@@ -16,7 +16,16 @@ use business_protocol::{
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
+mod deliverables;
+mod execution;
+mod execution_support;
 mod plans;
+mod transcode;
+
+#[cfg(test)]
+mod execution_tests;
+
+pub use execution::{PreparedMediaOutput, PreparedMediaTask};
 
 static ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -137,6 +146,8 @@ impl ProjectStore {
             )
             .map_err(internal)?;
         migrate_conversation_bindings(&mut connection)?;
+        execution::migrate(&mut connection)?;
+        deliverables::migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
         })

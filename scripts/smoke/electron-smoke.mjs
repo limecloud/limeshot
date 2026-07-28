@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -29,6 +29,12 @@ if (version.status !== 0 || version.stdout.trim() !== `codex-cli ${manifest.vers
 const fixture = await startResponsesFixture();
 const userData = await mkdtemp(join(tmpdir(), 'limeshot-gate-b-'));
 const workspace = join(userData, 'workspace');
+const sourceAssetPath = join(userData, 'source.wav');
+const ffprobeLog = join(userData, 'ffprobe-argv.txt');
+const ffprobeFixture = join(userData, process.platform === 'win32' ? 'ffprobe-fixture.exe' : 'ffprobe-fixture');
+const ffmpegLog = join(userData, 'ffmpeg-argv.txt');
+const ffmpegPidLog = join(userData, 'ffmpeg-active-pid.txt');
+const ffmpegFixture = join(userData, process.platform === 'win32' ? 'ffmpeg-fixture.exe' : 'ffmpeg-fixture');
 const projectName = 'Gate B project';
 const newProjectName = '新项目';
 const screenshotDir = process.env.LIMESHOT_SMOKE_SCREENSHOT_DIR;
@@ -36,6 +42,9 @@ let application;
 
 try {
   await mkdir(workspace, { recursive: true });
+  await writeWaveFixture(sourceAssetPath);
+  compileFfprobeFixture(ffprobeFixture);
+  compileFfmpegFixture(ffmpegFixture);
   await writeCodexConfig(join(userData, 'codex'), fixture.baseUrl);
   await seedProject({ businessBinary, userData, workspace, projectName });
 
@@ -51,6 +60,8 @@ try {
       LIMESHOT_BUSINESS_BIN: businessBinary,
       LIMESHOT_CODEX_BIN: codexBinary,
       LIMESHOT_CODEX_HOME: join(userData, 'codex'),
+      LIMESHOT_FFPROBE_BIN: ffprobeFixture,
+      LIMESHOT_FFMPEG_BIN: ffmpegFixture,
       LIMESHOT_ELECTRON_SMOKE: '1',
     },
   };
@@ -77,6 +88,29 @@ try {
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Gate B complete' }).waitFor({ timeout: 60_000 });
   await page.locator('.agent-turn[data-status="completed"]').waitFor({ timeout: 60_000 });
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-conversation.png') });
+
+  const newConversationButton = page.locator('.sidebar-actions').getByRole('button', { name: '新建会话' });
+  await newConversationButton.click();
+  await page.locator('[data-testid="agent-panel"][data-agent-state="creating"]').waitFor({ timeout: 20_000 });
+  const newConversationDraft = await page.evaluate(() => {
+    const composer = document.querySelector('.composer-field textarea');
+    return {
+      composerEnabled: composer instanceof HTMLTextAreaElement && !composer.disabled,
+      composerFocused: document.activeElement === composer,
+      oldConversationHidden: !document.body.innerText.includes('Gate B complete'),
+      newConversationDisabled: (document.querySelector('.sidebar-actions button'))?.disabled === true,
+    };
+  });
+  await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
+  const newConversationReady = await page.evaluate(() => {
+    const composer = document.querySelector('.composer-field textarea');
+    return composer instanceof HTMLTextAreaElement && !composer.disabled
+      && document.querySelector('.agent-timeline')?.textContent?.includes('输入制作要求以开始对话');
+  });
+  await page.locator('.project-nav-item', { hasText: projectName }).click();
+  await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
+  await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Gate B complete' }).waitFor({ timeout: 60_000 });
+
   await page.getByTitle('打开项目详情').click();
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-details.png') });
   const approveButton = page.getByRole('button', { name: '批准计划' });
@@ -86,6 +120,54 @@ try {
   await receipt.waitFor({ timeout: 20_000 });
   const approvalReceiptId = await receipt.getAttribute('data-approval-id') ?? '';
   await page.locator('.plan-panel > header > span[data-state="approved"]').waitFor({ timeout: 20_000 });
+
+  await application.evaluate(({ dialog }, assetPath) => {
+    globalThis.__limeshotImportDialogCallCount = 0;
+    dialog.showOpenDialog = async () => {
+      globalThis.__limeshotImportDialogCallCount += 1;
+      return { canceled: false, filePaths: [assetPath], bookmarks: [] };
+    };
+  }, sourceAssetPath);
+  await page.getByTestId('source-asset-import').click();
+  await page.locator('[data-testid="source-asset"][data-source-state="imported"]').waitFor({ timeout: 20_000 });
+  const importDialogCallCount = await application.evaluate(() => globalThis.__limeshotImportDialogCallCount ?? -1);
+  if (importDialogCallCount !== 1) throw new Error(`素材导入系统对话框调用次数错误: ${importDialogCallCount}`);
+  await page.getByTestId('media-probe-start').click();
+  await page.locator('[data-testid="task-run-list"] [data-operation-id="probe-source"][data-task-state="succeeded"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="artifact-list"] [data-artifact-type="media-manifest.v1"]').waitFor({ timeout: 20_000 });
+  await page.getByTestId('media-transcode-start').click();
+  await page.locator('[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-task-state="succeeded"]').first().waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="artifact-list"] [data-artifact-type="media-output.v1"]').first().waitFor({ timeout: 20_000 });
+  await page.getByTestId('media-transcode-start').click();
+  const runningTranscode = page.locator('[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-task-state="running"]');
+  await runningTranscode.waitFor({ timeout: 20_000 });
+  const transcodeProgressBeforeCancel = Number(await runningTranscode.getAttribute('data-progress'));
+  await runningTranscode.getByTitle('取消任务').click();
+  const canceledTranscode = page.locator('[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-task-state="canceled"]');
+  await canceledTranscode.waitFor({ timeout: 20_000 });
+  const canceledTaskRunId = await canceledTranscode.getAttribute('data-task-run-id');
+  if (!canceledTaskRunId) throw new Error('Canceled TaskRun identity is missing from the GUI projection');
+  const canceledFfmpegPid = Number(await readFile(ffmpegPidLog, 'utf8'));
+  const ffmpegProcessReaped = !pidIsAlive(canceledFfmpegPid);
+  const outputFilesAfterCancel = await readdir(join(workspace, 'outputs'));
+  const partialOutputsCleaned = outputFilesAfterCancel.every((name) => !name.endsWith('.part'));
+  await canceledTranscode.getByTitle('重试任务').click();
+  const retriedTranscode = page.locator(`[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-retry-of="${canceledTaskRunId}"][data-task-state="succeeded"]`);
+  await retriedTranscode.waitFor({ timeout: 20_000 });
+  const retriedTaskRunId = await retriedTranscode.getAttribute('data-task-run-id');
+  if (!retriedTaskRunId) throw new Error('Retried TaskRun identity is missing from the GUI projection');
+  const retriedOutput = page.locator(`[data-testid="artifact-list"] [data-artifact-type="media-output.v1"][data-task-run-id="${retriedTaskRunId}"][data-qa-state="passed"]`);
+  await retriedOutput.waitFor({ timeout: 20_000 });
+  const retriedOutputArtifactId = await retriedOutput.getAttribute('data-artifact-id');
+  if (!retriedOutputArtifactId) throw new Error('Retried media output Artifact identity is missing from the GUI projection');
+  await retriedOutput.getByRole('button', { name: '确认交付' }).click();
+  await page.locator(`[data-testid="deliverable-list"] [data-artifact-id="${retriedOutputArtifactId}"][data-current="true"]`).waitFor({ timeout: 20_000 });
+  if (screenshotDir) {
+    await page.getByTestId('execution-panel').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(screenshotDir, '04-media-execution.png') });
+  }
+  const ffprobeArgv = await readFile(ffprobeLog, 'utf8');
+  const ffmpegArgv = await readFile(ffmpegLog, 'utf8');
 
   await application.evaluate(({ dialog }) => {
     globalThis.__limeshotDialogCallCount = 0;
@@ -112,27 +194,39 @@ try {
   if (await page.locator('.app-action-error').count() !== 0) {
     throw new Error(`冷启动恢复新项目出现 GUI 错误: ${await page.locator('.app-action-error').allTextContents()}`);
   }
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '04-new-project-after-restart.png') });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '05-new-project-after-restart.png') });
   await page.locator('.project-nav-item', { hasText: projectName }).click();
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Gate B complete' }).waitFor({ timeout: 60_000 });
   await page.getByTitle('打开项目详情').click();
   await page.locator('.plan-panel > header > span[data-state="approved"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-task-state="succeeded"]').first().waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-task-state="canceled"]').waitFor({ timeout: 20_000 });
+  await page.locator(`[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-retry-of="${canceledTaskRunId}"][data-task-state="succeeded"]`).waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="artifact-list"] [data-artifact-type="media-manifest.v1"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="artifact-list"] [data-artifact-type="media-output.v1"]').first().waitFor({ timeout: 20_000 });
+  await page.locator(`[data-testid="artifact-list"] [data-artifact-type="qa-report.v1"][data-task-run-id="${retriedTaskRunId}"][data-qa-state="passed"]`).waitFor({ timeout: 20_000 });
+  await page.locator(`[data-testid="deliverable-list"] [data-artifact-id="${retriedOutputArtifactId}"][data-current="true"]`).waitFor({ timeout: 20_000 });
+  if (screenshotDir) {
+    await page.getByTestId('execution-panel').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(screenshotDir, '06-media-execution-after-restart.png') });
+  }
 
   const semanticEvidence = await page.evaluate(async ({ seededName, createdName }) => {
     const project = (await window.limeShot.project.list()).find((candidate) => candidate.name === seededName);
     if (!project) throw new Error('Gate B project is missing from semantic preload API');
     const createdProject = (await window.limeShot.project.list()).find((candidate) => candidate.name === createdName);
     if (!createdProject) throw new Error('New project is missing from semantic preload API');
-    const [history, plans] = await Promise.all([
+    const [history, plans, execution] = await Promise.all([
       window.limeShot.agent.startConversation({ projectId: project.projectId, conversationId: 'main' }),
       window.limeShot.plan.list(project.projectId),
+      window.limeShot.execution.read(project.projectId),
     ]);
     const [createdProjectDetail, createdConversation] = await Promise.all([
       window.limeShot.project.read(createdProject.projectId),
       window.limeShot.agent.startConversation({ projectId: createdProject.projectId, conversationId: 'main' }),
     ]);
-    return { history, plans, createdProject, createdProjectDetail, createdConversation };
+    return { history, plans, execution, createdProject, createdProjectDetail, createdConversation };
   }, { seededName: projectName, createdName: newProjectName });
   const requests = fixture.requests();
   const firstRequest = JSON.stringify(requests[0] ?? {});
@@ -156,32 +250,90 @@ try {
     && thirdRequest.includes('gate-b-tool-2')
     && thirdRequest.includes('Gate B production plan');
   const approvedPlanPersisted = semanticEvidence.plans.plans.some((plan) => plan.state === 'approved' && plan.approvedBy === 'user');
+  const mediaTaskPersisted = semanticEvidence.execution.taskRuns.some((task) => task.state === 'succeeded')
+    && semanticEvidence.execution.mediaJobs.some((job) => job.state === 'succeeded');
+  const mediaArtifact = semanticEvidence.execution.artifacts.find((artifact) => artifact.artifactType === 'media-manifest.v1');
+  const mediaOutputArtifact = semanticEvidence.execution.artifacts.find((artifact) => artifact.artifactType === 'media-output.v1');
+  const canceledTask = semanticEvidence.execution.taskRuns.find((task) => task.taskRunId === canceledTaskRunId);
+  const retriedTask = semanticEvidence.execution.taskRuns.find((task) => task.retryOfTaskRunId === canceledTaskRunId);
+  const retriedMediaJob = semanticEvidence.execution.mediaJobs.find((job) => job.taskRunId === retriedTask?.taskRunId);
+  const retriedOutputArtifact = semanticEvidence.execution.artifacts.find((artifact) => artifact.artifactType === 'media-output.v1'
+    && artifact.lineage.taskRunId === retriedTask?.taskRunId);
+  const retriedQaArtifact = semanticEvidence.execution.artifacts.find((artifact) => artifact.artifactType === 'qa-report.v1'
+    && artifact.lineage.taskRunId === retriedTask?.taskRunId);
+  const currentDeliverables = semanticEvidence.execution.deliverables.filter((deliverable) => deliverable.isCurrent);
+  const sourceAssetPersisted = semanticEvidence.execution.sourceAssets.some((asset) => asset.state === 'probed' && !JSON.stringify(asset).includes(sourceAssetPath));
+  const artifactLineagePersisted = Boolean(mediaArtifact
+    && mediaArtifact.lineage.planId === semanticEvidence.plans.plans[0]?.planId
+    && mediaArtifact.lineage.sourceAssetId === semanticEvidence.execution.sourceAssets[0]?.sourceAssetId
+    && existsSync(join(workspace, mediaArtifact.relativePath)));
+  const mediaOutputPersisted = Boolean(mediaOutputArtifact
+    && mediaOutputArtifact.lineage.planId === semanticEvidence.plans.plans[0]?.planId
+    && existsSync(join(workspace, mediaOutputArtifact.relativePath))
+    && semanticEvidence.execution.taskRuns.some((task) => task.operationId === 'transcode-source' && task.state === 'succeeded')
+    && semanticEvidence.execution.taskRuns.some((task) => task.operationId === 'transcode-source' && task.state === 'canceled'));
+  const retryLineagePersisted = Boolean(canceledTask?.state === 'canceled'
+    && retriedTask?.state === 'succeeded'
+    && retriedTask.retryOfTaskRunId === canceledTask.taskRunId
+    && retriedMediaJob?.state === 'succeeded'
+    && retriedOutputArtifact
+    && existsSync(join(workspace, retriedOutputArtifact.relativePath)));
+  const qaReportPersisted = Boolean(retriedQaArtifact?.qa?.passed
+    && retriedQaArtifact.qa.checks.every((check) => check.passed)
+    && existsSync(join(workspace, retriedQaArtifact.relativePath)));
+  const currentDeliverablePersisted = currentDeliverables.length === 1
+    && currentDeliverables[0].artifactId === retriedOutputArtifact?.artifactId
+    && currentDeliverables[0].qaArtifactId === retriedQaArtifact?.artifactId;
+  const structuredProbeArgv = ffprobeArgv.includes('-show_entries')
+    && ffprobeArgv.includes('-of\njson')
+    && ffprobeArgv.includes(join(workspace, 'assets'));
+  const structuredFfmpegArgv = ffmpegArgv.includes('-progress\npipe:1')
+    && ffmpegArgv.includes('-c:v\nmpeg4')
+    && ffmpegArgv.includes('-c:a\naac')
+    && ffmpegArgv.includes('-f\nmp4')
+    && ffmpegArgv.includes(join(workspace, 'assets'))
+    && ffmpegArgv.includes('.part');
   const newProjectCreated = semanticEvidence.createdProject.workspaceName === newProjectName
     && semanticEvidence.createdProjectDetail.brief.content.subject === ''
     && semanticEvidence.createdConversation.access === 'active'
     && Boolean(semanticEvidence.createdConversation.threadId)
     && existsSync(join(userData, 'projects', newProjectName));
   const newProjectRestoredAfterRestart = semanticEvidence.createdConversation.turns.length === 0;
-  if (
-    !foundationEvidence.hasPreload
-    || evidence.source !== 'business-service'
-    || foundationEvidence.profileCount !== 5
-    || !evidence.runtimeText.includes('PID')
-    || !toolActivityVisible
-    || !evidence.assistantVisible
-    || requests.length !== 3
-    || !dynamicToolAdvertised
-    || !planToolAdvertised
-    || !projectToolOutputRouted
-    || !planToolOutputRouted
-    || !historyRestored
-    || !approvalReceiptId
-    || evidence.planState !== 'approved'
-    || !approvedPlanPersisted
-    || !newProjectCreated
-    || !newProjectRestoredAfterRestart
-  ) {
-    throw new Error(`Gate B 证据不完整: ${JSON.stringify(evidence)}`);
+  const gateEvidence = {
+    hasPreload: foundationEvidence.hasPreload,
+    businessSource: evidence.source === 'business-service',
+    profileCatalog: foundationEvidence.profileCount === 5,
+    runtimePid: evidence.runtimeText.includes('PID'),
+    toolActivityVisible,
+    assistantVisible: evidence.assistantVisible,
+    providerRequestCount: requests.length === 3,
+    dynamicToolAdvertised,
+    planToolAdvertised,
+    projectToolOutputRouted,
+    planToolOutputRouted,
+    historyRestored,
+    approvalReceiptPersisted: Boolean(approvalReceiptId),
+    planApprovedInGui: evidence.planState === 'approved',
+    approvedPlanPersisted,
+    mediaTaskPersisted,
+    sourceAssetPersisted,
+    artifactLineagePersisted,
+    structuredProbeArgv,
+    mediaOutputPersisted,
+    retryLineagePersisted,
+    qaReportPersisted,
+    currentDeliverablePersisted,
+    structuredFfmpegArgv,
+    transcodeProgressVisible: transcodeProgressBeforeCancel > 0 && transcodeProgressBeforeCancel < 100,
+    ffmpegProcessReaped,
+    partialOutputsCleaned,
+    newConversationDraft: Object.values(newConversationDraft).every(Boolean),
+    newConversationReady,
+    newProjectCreated,
+    newProjectRestoredAfterRestart,
+  };
+  if (Object.values(gateEvidence).some((value) => !value)) {
+    throw new Error(`Gate B 证据不完整: ${JSON.stringify(gateEvidence)}`);
   }
   process.stdout.write(`${JSON.stringify({
     ok: true,
@@ -195,10 +347,26 @@ try {
     planToolOutputRouted,
     historyRestored,
     approvedPlanPersisted,
+    mediaTaskPersisted,
+    sourceAssetPersisted,
+    artifactLineagePersisted,
+    structuredProbeArgv,
+    mediaOutputPersisted,
+    retryLineagePersisted,
+    qaReportPersisted,
+    currentDeliverablePersisted,
+    structuredFfmpegArgv,
+    transcodeProgressBeforeCancel,
+    ffmpegProcessReaped,
+    partialOutputsCleaned,
+    newConversationDraft,
+    newConversationReady,
+    importDialogCallCount,
     newProjectCreated,
     newProjectRestoredAfterRestart,
     projectDialogCallCount,
     approvalReceiptId,
+    gateEvidence,
     ...foundationEvidence,
     ...evidence,
   })}\n`);
@@ -278,7 +446,7 @@ async function seedProject({ businessBinary: executable, userData: dataRoot, wor
   try {
     await rpc.request('initialize', {
       clientInfo: { name: 'limeshot-gate-b', version: '0.1.0' },
-      protocolVersion: 1,
+      protocolVersion: 4,
       instanceId: randomUUID(),
     });
     rpc.notify('initialized', {});
@@ -373,7 +541,10 @@ async function startResponsesFixture() {
                   title: 'Gate B production plan',
                   summary: 'Produce a verified desktop workflow.',
                   deliverables: ['Verified MP4'],
-                  operations: [{ operationId: 'prepare', kind: 'planning', title: 'Prepare production', capabilityId: null, dependsOn: [] }],
+                  operations: [
+                    { operationId: 'probe-source', kind: 'media_probe', title: 'Probe imported source', capabilityId: null, dependsOn: [] },
+                    { operationId: 'transcode-source', kind: 'media_transcode', title: 'Create normalized MP4', capabilityId: null, dependsOn: ['probe-source'] },
+                  ],
                   gaps: [],
                   risks: ['Provider capability remains unavailable'],
                 }),
@@ -423,4 +594,50 @@ function responseCompleted(id) {
       usage: { input_tokens: 0, input_tokens_details: null, output_tokens: 0, output_tokens_details: null, total_tokens: 0 },
     },
   };
+}
+
+async function writeWaveFixture(path) {
+  const sampleRate = 8_000;
+  const samples = 800;
+  const dataSize = samples * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVEfmt ', 8);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+  await writeFile(path, buffer);
+}
+
+function compileFfprobeFixture(path) {
+  const source = resolve(root, 'scripts', 'smoke', 'fixtures', 'ffprobe.rs');
+  const compiled = spawnSync('rustc', [source, '-O', '-o', path], { encoding: 'utf8' });
+  if (compiled.status !== 0) {
+    throw new Error(`FFprobe fixture 编译失败: ${compiled.stderr || compiled.stdout}`);
+  }
+}
+
+function compileFfmpegFixture(path) {
+  const source = resolve(root, 'scripts', 'smoke', 'fixtures', 'ffmpeg.rs');
+  const compiled = spawnSync('rustc', [source, '-O', '-o', path], { encoding: 'utf8' });
+  if (compiled.status !== 0) {
+    throw new Error(`FFmpeg fixture 编译失败: ${compiled.stderr || compiled.stdout}`);
+  }
+}
+
+function pidIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== 'ESRCH';
+  }
 }

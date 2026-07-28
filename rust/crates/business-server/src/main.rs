@@ -5,13 +5,15 @@ use business_protocol::{
     APPROVAL_DECIDE, ARTIFACT_CONTRACT_LIST, ApprovalDecideParams, BRIEF_UPDATE,
     BUSINESS_PROFILE_LIST, BUSINESS_SHUTDOWN, BUSINESS_STATUS_READ, BriefUpdateParams,
     CONVERSATION_BIND, CONVERSATION_BINDING_READ, ConversationBindParams,
-    ConversationBindingReadParams, INITIALIZE, INITIALIZED, IncomingMessage, InitializeParams,
-    InitializeResult, JsonRpcRequest, JsonRpcResponse, MAX_MESSAGE_BYTES, PLAN_LIST, PLAN_READ,
-    PROJECT_CONTEXT_READ, PROJECT_CREATE, PROJECT_LIST, PROJECT_READ, PROTOCOL_VERSION,
-    PROVIDER_CAPABILITY_LIST, PlanListParams, PlanReadParams, ProjectContextReadParams,
-    ProjectCreateParams, ProjectListParams, ProjectReadParams, RESOURCE_LIST, SERVICE_LIST,
-    SKILL_LIST, ShutdownResult, TOOL_CALL, TOOL_CATALOG_LIST, ToolCallParams, error_response,
-    parse_incoming, result_response,
+    ConversationBindingReadParams, DELIVERABLE_CONFIRM, DeliverableConfirmParams, INITIALIZE,
+    INITIALIZED, IncomingMessage, InitializeParams, InitializeResult, JsonRpcRequest,
+    JsonRpcResponse, MAX_MESSAGE_BYTES, PLAN_LIST, PLAN_READ, PROJECT_CONTEXT_READ, PROJECT_CREATE,
+    PROJECT_EXECUTION_READ, PROJECT_LIST, PROJECT_READ, PROTOCOL_VERSION, PROVIDER_CAPABILITY_LIST,
+    PlanListParams, PlanReadParams, ProjectContextReadParams, ProjectCreateParams,
+    ProjectExecutionReadParams, ProjectListParams, ProjectReadParams, RESOURCE_LIST, SERVICE_LIST,
+    SKILL_LIST, SOURCE_ASSET_IMPORT, ShutdownResult, SourceAssetImportParams, TASK_CANCEL,
+    TASK_RETRY, TASK_START, TOOL_CALL, TOOL_CATALOG_LIST, TaskCancelParams, TaskRetryParams,
+    TaskStartParams, ToolCallParams, error_response, parse_incoming, result_response,
 };
 use clap::Parser;
 use serde::{Serialize, de::DeserializeOwned};
@@ -33,6 +35,10 @@ struct Args {
     resources_dir: PathBuf,
     #[arg(long)]
     log_dir: PathBuf,
+    #[arg(long)]
+    ffprobe_bin: Option<PathBuf>,
+    #[arg(long)]
+    ffmpeg_bin: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,7 +71,12 @@ async fn main() {
 
 async fn run_stdio(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&args.log_dir)?;
-    let core = BusinessCore::open(&args.data_dir, &args.resources_dir)?;
+    let core = BusinessCore::open_with_media(
+        &args.data_dir,
+        &args.resources_dir,
+        args.ffprobe_bin.clone(),
+        args.ffmpeg_bin.clone(),
+    )?;
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut stdout = BufWriter::new(tokio::io::stdout());
     let mut state = ConnectionState::AwaitingInitialize;
@@ -158,8 +169,21 @@ async fn route_request(
         APPROVAL_DECIDE => domain(request, |params: ApprovalDecideParams| {
             core.decide_plan(params)
         }),
+        SOURCE_ASSET_IMPORT => domain(request, |params: SourceAssetImportParams| {
+            core.import_source_asset(params)
+        }),
+        PROJECT_EXECUTION_READ => domain(request, |params: ProjectExecutionReadParams| {
+            core.read_execution(params)
+        }),
+        TASK_START => domain(request, |params: TaskStartParams| core.start_task(params)),
+        TASK_CANCEL => domain(request, |params: TaskCancelParams| core.cancel_task(params)),
+        TASK_RETRY => domain(request, |params: TaskRetryParams| core.retry_task(params)),
+        DELIVERABLE_CONFIRM => domain(request, |params: DeliverableConfirmParams| {
+            core.confirm_deliverable(params)
+        }),
         TOOL_CALL => domain(request, |params: ToolCallParams| core.call_tool(params)),
         BUSINESS_SHUTDOWN => {
+            core.shutdown_tasks();
             let _ = shutdown_tx.send(()).await;
             result_response(request.id.clone(), &ShutdownResult { accepted: true })
         }

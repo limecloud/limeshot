@@ -17,11 +17,20 @@ import type {
   ApprovalDecideResult,
   BriefUpdateParams,
   BriefUpdateResult,
+  DeliverableConfirmParams,
+  DeliverableConfirmResult,
   PlanListResult,
   PlanReadResult,
   ProjectCreateResult,
+  ProjectExecutionReadResult,
   ProjectReadResult,
   ProjectSummary,
+  SourceAssetImportResult,
+  TaskCancelParams,
+  TaskCancelResult,
+  TaskRetryParams,
+  TaskStartParams,
+  TaskStartResult,
 } from '@business/generated';
 
 const api: DesktopApi = {
@@ -48,6 +57,20 @@ const api: DesktopApi = {
   },
   approval: {
     decide: (params: ApprovalDecideParams): Promise<ApprovalDecideResult> => ipcRenderer.invoke(DESKTOP_IPC.approvalDecide, params),
+  },
+  sourceAsset: {
+    import: (projectId: string): Promise<SourceAssetImportResult | null> => ipcRenderer.invoke(DESKTOP_IPC.sourceAssetImport, projectId),
+  },
+  execution: {
+    read: (projectId: string): Promise<ProjectExecutionReadResult> => ipcRenderer.invoke(DESKTOP_IPC.executionRead, projectId),
+  },
+  task: {
+    start: (params: TaskStartParams): Promise<TaskStartResult> => ipcRenderer.invoke(DESKTOP_IPC.taskStart, params),
+    cancel: (params: TaskCancelParams): Promise<TaskCancelResult> => ipcRenderer.invoke(DESKTOP_IPC.taskCancel, params),
+    retry: (params: TaskRetryParams): Promise<TaskStartResult> => ipcRenderer.invoke(DESKTOP_IPC.taskRetry, params),
+  },
+  deliverable: {
+    confirm: (params: DeliverableConfirmParams): Promise<DeliverableConfirmResult> => ipcRenderer.invoke(DESKTOP_IPC.deliverableConfirm, params),
   },
 };
 

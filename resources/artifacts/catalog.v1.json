@@ -13,6 +13,7 @@
     { "artifactType": "prompt-manifest.v1", "schemaVersion": 1, "nameKey": "artifact.promptManifest.name" },
     { "artifactType": "subtitle.v1", "schemaVersion": 1, "nameKey": "artifact.subtitle.name" },
     { "artifactType": "media-manifest.v1", "schemaVersion": 1, "nameKey": "artifact.mediaManifest.name" },
+    { "artifactType": "media-output.v1", "schemaVersion": 1, "nameKey": "artifact.mediaOutput.name" },
     { "artifactType": "qa-report.v1", "schemaVersion": 1, "nameKey": "artifact.qaReport.name" }
   ]
 }

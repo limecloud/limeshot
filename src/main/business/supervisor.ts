@@ -61,9 +61,22 @@ export class BusinessSupervisor {
     const managedDir = join(root, 'managed');
     const logDir = join(root, 'logs');
     for (const directory of [dataDir, managedDir, logDir]) mkdirSync(directory, { recursive: true });
-    const child = spawn(resolveExecutable(), [
+    const args = [
       '--stdio', '--data-dir', dataDir, '--resources-dir', managedDir, '--log-dir', logDir,
-    ], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    ];
+    if (!app.isPackaged) {
+      const ffprobe = process.env.LIMESHOT_FFPROBE_BIN;
+      if (ffprobe) {
+        if (!isAbsolute(ffprobe)) throw new Error('LIMESHOT_FFPROBE_BIN 必须是绝对路径');
+        args.push('--ffprobe-bin', resolve(ffprobe));
+      }
+      const ffmpeg = process.env.LIMESHOT_FFMPEG_BIN;
+      if (ffmpeg) {
+        if (!isAbsolute(ffmpeg)) throw new Error('LIMESHOT_FFMPEG_BIN 必须是绝对路径');
+        args.push('--ffmpeg-bin', resolve(ffmpeg));
+      }
+    }
+    const child = spawn(resolveExecutable(), args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.child = child;
     child.stderr.on('data', (chunk) => console.error(`[business-server] ${String(chunk).trimEnd()}`));
     child.once('exit', (code, signal) => {

@@ -66,8 +66,8 @@ TaskRun 使用 `draft -> awaiting_approval -> queued -> running -> partially_suc
 `AssetRecord` 统一记录用户素材、授权资产、provider 引用、AI 生成资产和 FFmpeg 派生资产，并保存 source、hash、owner、consent、用途、有效期和 lineage。
 
 - `RunRecord` 保存外部 task id、状态摘要、重试、成本和脱敏诊断。
-- `Artifact` 保存脚本、JSON、图片、音频、视频、字幕、manifest 和 QA 报告。
-- `Deliverable` 指向用户确认的最终 Artifact 版本。
+- `Artifact` 保存脚本、JSON、图片、音频、视频、字幕、manifest 和 QA 报告。当前媒体链在 QA 通过时原子登记同 TaskRun 的 `media-output.v1 + qa-report.v1`。
+- `Deliverable` 指向用户确认的最终 Artifact 版本。Task succeeded、passing QA 与 Deliverable 互不替代；确认时复验 output/QA 文件 hash，每个 Project 只允许一个 current，旧记录保留。
 
 Provider raw response、临时下载、proxy、`.part` 和完整日志不进入普通工作区。
 
@@ -212,7 +212,7 @@ Skill 负责解释意图、收集缺失输入、选择注册工具和解释结�
 project_read / plan_create
 ```
 
-`plan_create` 经 `tool/call -> ToolHost` 创建版本化 ProductionPlan；不暴露 raw `plan/create` RPC。计划批准只能由 GUI 用户动作调用 `approval/decide`，不提供 `plan_approve` dynamic tool。后续 `task_*`、`artifact_*` 与 `deliverable_*` 只有在 schema、executor、持久化、负向测试和 Gate B 同批落地后才能加入 catalog。
+`plan_create` 经 `tool/call -> ToolHost` 创建版本化 ProductionPlan；不暴露 raw `plan/create` RPC。计划批准只能由 GUI 用户动作调用 `approval/decide`，不提供 `plan_approve` dynamic tool。当前 `task/start|cancel|retry` 与 `deliverable/confirm` 也是 GUI semantic action，不进入 dynamic tool catalog；最终交付必须是用户的独立明确决定，不能由 Agent、Turn 终态或 FFmpeg exit code代替。
 
 工具 schema、Project scope、批准和执行终态由 ToolHost 决定，不能依赖 Codex 自由解释 Markdown 后临时拼接流程。
 
@@ -220,7 +220,7 @@ project_read / plan_create
 
 - 左侧：新建会话、新建项目、搜索、Project 与当前 Conversation 树；归档和账户只在真实 owner 落地后出现。
 - 首次页：五类 Profile、业务提示和输入器；提交后由 Electron 创建受管 workspace 和 Project，再直接进入 Codex Conversation；不显示自定义项目表单，也不弹系统目录选择器。
-- 项目区：默认显示 Agent 对话和底部输入器；Brief、ProductionPlan 与 ApprovalReceipt 位于可打开的项目详情面板，后续素材/任务/产物沿同一面板扩展。
+- 项目区：默认显示 Agent 对话和底部输入器；Brief、ProductionPlan、ApprovalReceipt、素材、任务、QA Artifact 与 current Deliverable 位于可打开的项目详情面板。
 - 任务中心：ProviderTask 与 MediaJob 的统一投影，同时保留任务类型和成本差异。
 - 账户中心：余额、报价、实际消耗、充值和交易记录。
 

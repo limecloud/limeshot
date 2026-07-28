@@ -61,6 +61,11 @@
       "schemaVersion": 1
     },
     {
+      "artifactType": "media-output.v1",
+      "nameKey": "artifact.mediaOutput.name",
+      "schemaVersion": 1
+    },
+    {
       "artifactType": "qa-report.v1",
       "nameKey": "artifact.qaReport.name",
       "schemaVersion": 1

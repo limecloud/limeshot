@@ -14,7 +14,7 @@ Electron direct Codex
   -> five-profile GUI
 ```
 
-当前阶段：Phase 0 已完成；Phase 1 的 Project/Brief/binding、Phase 2 的 direct Codex、Phase 3 的 `project_read -> plan_create -> GUI approval` 已通过同一条真实 Electron 双子进程 Gate B。下一步进入 approved ProductionPlan 到 Task/Artifact 的业务执行竖切。
+当前阶段：Phase 0 已完成；Phase 1 的 Project/Brief/binding、Phase 2 的 direct Codex、Phase 3 的 `project_read -> plan_create -> GUI approval` 已通过真实 Electron 双子进程 Gate B。Phase 4 已接通 `approved Plan -> SourceAsset -> media_probe -> media_transcode -> media-output.v1 + qa-report.v1 -> GUI confirm -> current Deliverable`，并在同一 TaskRun 模型上完成取消后显式 retry；下一步是可再分发 FFmpeg 资源与远端 Provider reconcile。
 
 ## 2. Phase 0：架构与治理收敛
 
@@ -87,9 +87,13 @@ Electron direct Codex
 ## 6. Phase 4：Managed Node 与媒体
 
 - 从 approved ProductionPlan 创建第一个结构化 TaskRun/MediaJob，不允许从聊天文本或 Turn 终态推断执行成功。
+- 当前证据：`media_probe` 已实现批准校验、输入 hash、TaskRun/MediaJob 状态、`media-manifest.v1` lineage、重启 interrupted 和真实 Electron semantic projection；`media_transcode` 复用同一状态机，已实现固定 MP4 argv、后台进度、GUI 取消、timeout、`.part` 清理、进程回收和显式 retry。提交后的输出必须通过确定性 FFprobe QA，随后原子登记 `media-output.v1 + qa-report.v1`；用户再通过 GUI semantic action 确认，Rust 复验文件 hash 并切换 Project 唯一 current Deliverable。完整链路已通过真实 Electron 冷启动恢复。
 - allowlisted Node task catalog、固定 script、最小环境、timeout/cancel。
-- FFprobe、结构化 media operation、FFmpeg job 和 Artifact lineage。
-- 真实 fixture 证明进度、取消、无孤儿进程和输出 QA。
+- [x] FFprobe、首个结构化 FFmpeg operation 和 Artifact lineage。
+- [x] 真实 fixture 证明进度、取消、timeout、无遗留进程和输出原子提交/清理。
+- [x] GUI 取消后显式 retry、线性 TaskRun lineage 与冷启动恢复。
+- [x] 确定性媒体 QA、`qa-report.v1`、用户确认 current Deliverable、完整性负向测试与 Gate B。
+- [ ] 选择可再分发 FFmpeg release 并完成 packaged clean-machine Gate B。
 
 ## 7. Phase 5：Provider 与成本
 

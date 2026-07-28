@@ -15,14 +15,24 @@ const profiles = [
 ].map(([profileId, nameKey, descriptionKey]) => ({ profileId, nameKey, descriptionKey, executionState: 'preparing' as const }));
 
 const foundation = {
-  business: { status: 'ready', serverPid: 4321, protocolVersion: 1, startedAtEpochMs: 1 },
+  business: { status: 'ready', serverPid: 4321, protocolVersion: 4, startedAtEpochMs: 1 },
   profiles,
   skills: [{ skillId: 'core', profileId: 'all', nameKey: 'core', descriptionKey: 'core', instructionPath: 'core' }],
   tools: [{ name: 'project_read', description: 'read project', inputSchema: {} }],
-  contracts: Array.from({ length: 13 }, (_, index) => ({ artifactType: `artifact-${index}`, schemaVersion: 1, nameKey: `artifact-${index}` })),
+  contracts: Array.from({ length: 14 }, (_, index) => ({ artifactType: `artifact-${index}`, schemaVersion: 1, nameKey: `artifact-${index}` })),
   capabilities: [{ capabilityId: 'image.generate', nameKey: 'image', inputModalities: [], outputModalities: [], availability: 'unavailable' as const, reasonKey: 'provider' }],
-  services: [{ serviceId: 'media.probe', nameKey: 'probe', kind: 'local' as const, state: 'blocked' as const, reasonKey: 'ffmpeg', capabilityIds: [] }],
+  services: [
+    { serviceId: 'media.probe', nameKey: 'probe', kind: 'local' as const, state: 'blocked' as const, reasonKey: 'ffmpeg', capabilityIds: [] },
+    { serviceId: 'media.assemble', nameKey: 'assemble', kind: 'local' as const, state: 'blocked' as const, reasonKey: 'ffmpeg', capabilityIds: [] },
+  ],
   resources: [{ resourceId: 'ffmpeg', kind: 'media_runtime' as const, required: true, platformKey: 'darwin-arm64', version: null, state: 'blocked' as const, detailCode: 'missing', executableNames: [] }],
+};
+
+const executionApi = {
+  sourceAsset: { import: vi.fn(async () => null) },
+  execution: { read: vi.fn(async () => ({ sourceAssets: [], taskRuns: [], mediaJobs: [], artifacts: [], deliverables: [] })) },
+  task: { start: vi.fn(), cancel: vi.fn(), retry: vi.fn() },
+  deliverable: { confirm: vi.fn() },
 };
 
 afterEach(() => {
@@ -54,6 +64,7 @@ describe('App', () => {
       },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
+      ...executionApi,
     };
     render(React.createElement(App));
     expect(await screen.findByTestId('profile-general')).toBeTruthy();
@@ -88,6 +99,7 @@ describe('App', () => {
       agent: { startConversation, startTurn, interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
+      ...executionApi,
     };
     render(React.createElement(App));
     fireEvent.click(await screen.findByTestId('project-project-1'));
@@ -102,6 +114,74 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('描述要求或补充制作信息'), { target: { value: '生成一个口播制作计划' } });
     fireEvent.click(screen.getByTitle('发送'));
     expect(startTurn).toHaveBeenCalledWith({ projectId: 'project-1', conversationId: 'main', text: '生成一个口播制作计划' });
+  });
+
+  it('opens a writable new-conversation draft and queues the first turn while Codex starts', async () => {
+    Object.defineProperty(window.navigator, 'language', { configurable: true, value: 'zh-CN' });
+    const project = {
+      projectId: 'project-conversation', name: '会话项目', profileId: 'general', state: 'draft' as const,
+      workspaceName: 'workspace', createdAtEpochMs: 1, updatedAtEpochMs: 1,
+    };
+    const brief = {
+      briefId: 'brief-conversation', projectId: project.projectId, version: 1, completeness: 'incomplete' as const,
+      missingFields: ['subject'], conflicts: [], createdAtEpochMs: 1,
+      content: { subject: '', audience: '', platform: '', targetDurationSeconds: null, aspectRatio: '', language: 'zh-CN', style: '', mustInclude: [], prohibited: [], deliveryFormat: 'mp4' },
+    };
+    let resolveNewConversation: ((result: { conversationId: string; threadId: string; turns: []; access: 'active' }) => void) | undefined;
+    const startConversation = vi.fn(({ conversationId }: { conversationId: string }) => {
+      if (conversationId === 'main') {
+        return Promise.resolve({
+          conversationId,
+          threadId: 'thread-main',
+          turns: [{
+            id: 'turn-main',
+            status: 'completed' as const,
+            items: [{ id: 'item-main', kind: 'user' as const, text: '旧会话内容' }],
+          }],
+          access: 'active' as const,
+        });
+      }
+      return new Promise<{ conversationId: string; threadId: string; turns: []; access: 'active' }>((resolve) => {
+        resolveNewConversation = resolve;
+      });
+    });
+    const startTurn = vi.fn(async () => ({ threadId: 'thread-new', turnId: 'turn-new' }));
+    window.limeShot = {
+      foundation: { read: vi.fn(async () => foundation) },
+      project: { create: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      agent: { startConversation, startTurn, interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
+      plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
+      approval: { decide: vi.fn() },
+      ...executionApi,
+    };
+
+    render(React.createElement(App));
+    fireEvent.click(await screen.findByTestId(`project-${project.projectId}`));
+    await waitFor(() => expect(document.querySelector('.agent-timeline')?.textContent).toContain('旧会话内容'));
+
+    const newConversationButton = screen.getAllByRole('button', { name: '新建会话' })[0];
+    fireEvent.click(newConversationButton);
+
+    const composer = screen.getByLabelText('描述要求或补充制作信息') as HTMLTextAreaElement;
+    await waitFor(() => expect(screen.getByTestId('agent-panel').getAttribute('data-agent-state')).toBe('creating'));
+    expect(document.querySelector('.agent-timeline')?.textContent).not.toContain('旧会话内容');
+    expect(composer.disabled).toBe(false);
+    expect(document.activeElement).toBe(composer);
+    expect((newConversationButton as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(composer, { target: { value: '新会话的第一条消息' } });
+    fireEvent.keyDown(composer, { key: 'Enter', shiftKey: false });
+    expect(startTurn).not.toHaveBeenCalled();
+
+    const newConversationId = startConversation.mock.calls[1]?.[0].conversationId;
+    expect(newConversationId).toMatch(/^conversation-/);
+    resolveNewConversation?.({ conversationId: newConversationId, threadId: 'thread-new', turns: [], access: 'active' });
+    await waitFor(() => expect(startTurn).toHaveBeenCalledWith({
+      projectId: project.projectId,
+      conversationId: newConversationId,
+      text: '新会话的第一条消息',
+    }));
+    await waitFor(() => expect(composer.value).toBe(''));
   });
 
   it('creates a managed project and sends the home request as the first Codex turn', async () => {
@@ -128,6 +208,7 @@ describe('App', () => {
       },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
+      ...executionApi,
     };
     render(React.createElement(App));
     const composer = await screen.findByLabelText('描述制作需求');
@@ -169,6 +250,7 @@ describe('App', () => {
       },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
+      ...executionApi,
     };
     render(React.createElement(App));
     fireEvent.click(await screen.findByTestId('project-project-error'));

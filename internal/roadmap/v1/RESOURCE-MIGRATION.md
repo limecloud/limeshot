@@ -160,6 +160,14 @@ Node task 是受管执行资源，不是第二套 workflow runtime。允许迁�
 | artifact path/index/save | 由 artifact repository 承担 |
 | 客户项目、特定剧集、一次性样例 | `dead`，不迁移 |
 
+### 6.1 FFmpeg 可再分发构建决策
+
+生产包不直接采用已调研的第三方预编译 bundle：BtbN 未提供目标 macOS arm64 release；Gyan Windows essentials/full 是 GPLv3 静态构建；FFmpeg 官方 GitHub release 不提供可直接消费的跨平台 binary。三者都不能同时满足当前 macOS arm64、Windows x64、许可证和同源可审计要求。
+
+LimeShot 的 production FFprobe/FFmpeg 必须由 CI 从固定 FFmpeg upstream source revision 可复现构建：显式关闭 GPL、nonfree 和 version3 组件，只启用当前结构化 probe/transcode 所需的 LGPL codec/container/filter；优先使用动态链接并随包提供对应共享库，避免把 LGPL 可重链接义务隐藏在单个静态 executable 中。每个平台 release 必须登记 source revision、完整 configure flags、构建镜像/toolchain、archive 与 executable SHA-256、COPYING、NOTICE、修改记录和可复现构建说明。
+
+在上述产物完成法律与 clean-machine Gate B 前，`resources/runtime/manifest.v1.json` 的 FFmpeg release 保持 `UNRESOLVED / blocked`。`scripts/smoke/fixtures` 仅是确定性测试进程，不得进入 production manifest、打包资源或 runtime fallback。
+
 ## 7. Artifact 与模型目录
 
 Artifact contract 至少覆盖 script、shot-list、source-timeline、source-shot、entity-registry、asset-registry、target-shot、dialogue-coverage、generation-unit、prompt-manifest、subtitle、media-manifest 和 qa-report。
