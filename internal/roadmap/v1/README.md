@@ -228,7 +228,7 @@ Electron direct Codex + Rust pure business service + controlled ToolHost
 
 ## 15. 事实源
 
-- Codex App Server：<https://github.com/openai/codex/blob/rust-v0.141.0/codex-rs/app-server/README.md>
+- Codex App Server：<https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/app-server/README.md>
 - OpenAI Codex：<https://github.com/openai/codex>
 
 外部桌面应用只作为调研 evidence，不进入 production truth。

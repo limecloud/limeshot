@@ -11,3 +11,4 @@ rust/target/
 *.log
 .limeshot/
 .tmp/
+.gstack/

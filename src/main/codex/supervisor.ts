@@ -1,10 +1,12 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { app } from 'electron';
+import { app, shell } from 'electron';
 
 import { CODEX_VERSION, CodexClient, type CodexNotification, type CodexRequestMethod, type CodexRequestParams, type CodexRequestResult, type CodexToolCallRequest, type CodexToolCallResponse } from '@codex/index';
+import type { AgentEvent, AgentInteractionExternalOpenInput, AgentInteractionExternalOpenResult, AgentInteractionSubmitInput, AgentInteractionSubmitResult, AgentPendingInteractionProjection } from '../../shared/agent';
+import { InteractionCoordinator } from './interactions';
 
 function executableName(): string { return process.platform === 'win32' ? 'codex.exe' : 'codex'; }
 
@@ -34,6 +36,12 @@ function skillsDirectory(): string {
   return app.isPackaged ? join(process.resourcesPath, 'resources', 'skills') : resolve('resources', 'skills');
 }
 
+function standaloneDirectory(): string {
+  const path = join(app.getPath('userData'), 'standalone');
+  mkdirSync(path, { recursive: true });
+  return realpathSync(path);
+}
+
 export class CodexSupervisor {
   private child?: ChildProcessWithoutNullStreams;
   private client?: CodexClient;
@@ -41,8 +49,11 @@ export class CodexSupervisor {
   private readonly listeners = new Set<(notification: CodexNotification) => void>();
   private readonly activeThreadIds = new Set<string>();
   private readonly unmaterializedThreadIds = new Set<string>();
+  private readonly interactions: InteractionCoordinator;
 
-  constructor(private readonly routeToolCall: (request: CodexToolCallRequest) => Promise<CodexToolCallResponse>) {}
+  constructor(private readonly routeToolCall: (request: CodexToolCallRequest) => Promise<CodexToolCallResponse>) {
+    this.interactions = new InteractionCoordinator((url) => shell.openExternal(url));
+  }
 
   start(): Promise<void> {
     if (this.client) return Promise.resolve();
@@ -52,6 +63,7 @@ export class CodexSupervisor {
   }
 
   async stop(): Promise<void> {
+    this.interactions.disconnectAll();
     this.client?.close();
     this.client = undefined;
     this.activeThreadIds.clear();
@@ -80,16 +92,35 @@ export class CodexSupervisor {
 
   isThreadActive(threadId: string): boolean { return this.activeThreadIds.has(threadId); }
   isThreadUnmaterialized(threadId: string): boolean { return this.unmaterializedThreadIds.has(threadId); }
+  defaultCwd(): string { return standaloneDirectory(); }
 
   subscribe(listener: (notification: CodexNotification) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
+  subscribeInteractions(listener: (event: AgentEvent) => void): () => void {
+    return this.interactions.subscribe(listener);
+  }
+
+  listInteractions(): AgentPendingInteractionProjection[] {
+    return this.interactions.list();
+  }
+
+  submitInteraction(input: AgentInteractionSubmitInput): AgentInteractionSubmitResult {
+    return this.interactions.submit(input);
+  }
+
+  openInteractionExternal(input: AgentInteractionExternalOpenInput): Promise<AgentInteractionExternalOpenResult> {
+    return this.interactions.openExternal(input);
+  }
+
   private async spawn(): Promise<void> {
     const codexHome = resolveCodexHome();
+    const cwd = standaloneDirectory();
     mkdirSync(codexHome, { recursive: true });
     const child = spawn(resolveExecutable(), ['app-server', '--listen', 'stdio://'], {
+      cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
       env: { ...process.env, CODEX_HOME: codexHome },
@@ -103,11 +134,27 @@ export class CodexSupervisor {
       this.child = undefined;
       this.activeThreadIds.clear();
       this.unmaterializedThreadIds.clear();
+      this.interactions.disconnectAll();
       console.error(`Codex App Server exited: code=${String(code)} signal=${String(signal)}`);
     });
     const client = new CodexClient(child);
+    client.handle('item/commandExecution/requestApproval', (params, meta) => this.interactions.request('item/commandExecution/requestApproval', params, meta));
+    client.handle('item/fileChange/requestApproval', (params, meta) => this.interactions.request('item/fileChange/requestApproval', params, meta));
+    client.handle('item/tool/requestUserInput', (params, meta) => this.interactions.request('item/tool/requestUserInput', params, meta));
+    client.handle('mcpServer/elicitation/request', (params, meta) => this.interactions.request('mcpServer/elicitation/request', params, meta));
+    client.handle('item/permissions/requestApproval', (params, meta) => this.interactions.request('item/permissions/requestApproval', params, meta));
     client.handle('item/tool/call', (params) => this.routeToolCall(params as CodexToolCallRequest));
+    client.handle('account/chatgptAuthTokens/refresh', async () => {
+      throw new Error('Desktop host 不管理外部 ChatGPT 凭证，请重新登录 Codex');
+    });
+    client.handle('attestation/generate', async () => {
+      throw new Error(`当前平台没有可用的客户端证明能力: ${process.platform}-${process.arch}`);
+    });
+    client.handle('currentTime/read', async () => ({ currentTimeAt: Math.floor(Date.now() / 1000) }));
+    client.handle('applyPatchApproval', (params, meta) => this.interactions.request('applyPatchApproval', params, meta));
+    client.handle('execCommandApproval', (params, meta) => this.interactions.request('execCommandApproval', params, meta));
     client.subscribe((notification) => {
+      this.reconcileInteractions(notification);
       for (const listener of this.listeners) listener(notification);
     });
     try {
@@ -118,6 +165,22 @@ export class CodexSupervisor {
       client.close();
       child.kill();
       throw error;
+    }
+  }
+
+  private reconcileInteractions(notification: CodexNotification): void {
+    if (notification.method === 'unknown') return;
+    const params = typeof notification.params === 'object' && notification.params !== null
+      ? notification.params as Record<string, unknown>
+      : {};
+    const threadId = typeof params.threadId === 'string' ? params.threadId : undefined;
+    if (notification.method === 'serverRequest/resolved') {
+      this.interactions.resolveRaw(params.requestId);
+    } else if (notification.method === 'turn/completed' && threadId) {
+      const turn = typeof params.turn === 'object' && params.turn !== null ? params.turn as Record<string, unknown> : {};
+      if (typeof turn.id === 'string') this.interactions.completeTurn(threadId, turn.id);
+    } else if (notification.method === 'thread/closed' && threadId) {
+      this.interactions.closeThread(threadId);
     }
   }
 }

@@ -72,7 +72,7 @@ flowchart TD
 
 Codex 按首次 Conversation 惰性启动，最终解析和 spawn 只归 Electron；Node/FFmpeg 的安装与执行归 Rust ToolHost。任一步失败都进入 blocked，不回退系统 PATH 或其他应用资源。
 
-## 4. 新建 Project / Conversation 时序图
+## 4. 新建 Conversation / 选择 Project 时序图
 
 ```mermaid
 sequenceDiagram
@@ -83,15 +83,8 @@ sequenceDiagram
     participant Biz as Rust Business Service
     participant Codex as Codex App Server
 
-    alt 首页提交首个需求
-        User->>UI: 选择 Profile，输入需求
-        UI->>Host: project.create(profileId, language, initialSubject?)
-        Host->>Host: 创建应用数据区受管 workspace
-        Host->>Biz: project/create(name, managed workspace, incomplete Brief)
-        Biz-->>Host: Project + Brief v1
-        Host-->>UI: Project created
-    else 侧栏新建项目
-        User->>UI: 点击新建项目
+    alt Composer + 菜单选择本地文件夹
+        User->>UI: 点击 + / 选择或新建文件夹
         UI->>Host: project.open(profileId, language)
         Host->>Picker: showOpenDialog(openDirectory)
         Picker-->>Host: selected directory or canceled
@@ -101,22 +94,26 @@ sequenceDiagram
             Host-->>UI: Project opened
         end
     end
-    User->>UI: 进入 Project 或新建 Conversation
-    UI->>Host: agent.startConversation(projectId, conversationId)
-    Host->>Biz: conversation/binding/read
-    Biz-->>Host: binding = null
-    Host->>Codex: thread/start(cwd, dynamicTools)
-    Codex-->>Host: thread.id
-    Host->>Biz: conversation/bind(projectId, conversationId, thread.id, expected=null)
-    Biz-->>Host: binding
-    Host-->>UI: Conversation ready
-    opt 首页已有 initialSubject
-        UI->>Host: agent.startTurn(projectId, conversationId, initialSubject)
-        Host->>Codex: turn/start(threadId, input)
+    User->>UI: 输入需求并提交
+    alt 未选择 Project
+        UI->>Host: agent.startConversation(projectId=null, conversationId)
+        Host->>Codex: thread/start(cwd omitted, no business tools)
+        Codex-->>Host: standalone thread.id
+    else 已选择本地 Project
+        UI->>Host: agent.startConversation(projectId, conversationId)
+        Host->>Biz: conversation/binding/read
+        Biz-->>Host: binding = null
+        Host->>Codex: thread/start(project cwd, dynamicTools)
+        Codex-->>Host: project thread.id
+        Host->>Biz: conversation/bind(projectId, conversationId, thread.id, expected=null)
+        Biz-->>Host: binding
     end
+    Host-->>UI: Conversation ready
+    UI->>Host: agent.startTurn(projectId|null, conversationId, threadId, text)
+    Host->>Codex: turn/start(threadId, input)
 ```
 
-Renderer 不提交或接收任意 workspace path，也不显示自定义项目表单。首页需求由 Electron 在应用数据区分配受管 workspace；侧栏“新建项目”由 Electron 系统目录选择器获得目录，并直接传给 Rust 创建 Project/Brief。Rust 只保存 `thread.id` 绑定，不保存 Thread 内容；用户取消目录选择时不创建 Project 或 Conversation。
+Renderer 不提交或接收任意 workspace path，也不显示自定义项目表单。Composer 底部 `+` 菜单保留 standalone 与本地 Project 两条路径；系统目录选择器获得的目录由 Electron 直接传给 Rust 创建 Project/Brief。Rust 只保存 Project Conversation 的 `thread.id` 绑定，不保存 Thread 内容；standalone 不写 Rust binding，用户取消目录选择时不创建 Project 或 Conversation。
 
 ## 5. Turn 与动态工具时序图
 
@@ -292,7 +289,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[选择 Profile / 创建受管 Project] --> B[Conversation 收集 Brief / 导入素材]
+    A[选择 Profile / 本地 Project] --> B[Conversation 收集 Brief / 导入素材]
     B --> C{Brief workable?}
     C -- 否 --> D[Codex 提问并显示缺口]
     D --> B

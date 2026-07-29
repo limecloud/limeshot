@@ -2,7 +2,7 @@
 
 状态：`current / canonical`
 日期：`2026-07-28`
-Codex 事实源：OpenAI Codex 的 `rust-v0.141.0` tag，重点为 [`codex-rs/app-server/README.md`](https://github.com/openai/codex/blob/rust-v0.141.0/codex-rs/app-server/README.md) 与同版本 `app-server-protocol` schema。
+Codex 事实源：OpenAI Codex 的 `rust-v0.145.0` tag，重点为 [`codex-rs/app-server/README.md`](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/app-server/README.md) 与同版本 experimental `app-server-protocol` schema。
 
 ## 1. 决策
 
@@ -49,7 +49,7 @@ Renderer 只使用 semantic Electron IPC，不直接接触任一 wire protocol�
 { "method": "initialized", "params": {} }
 ```
 
-当前实现使用：`thread/start|resume|read`、`turn/start|interrupt`、固定 Thread/Turn/Item 通知和 `item/tool/call` reverse request。`thread/list|name/set`、`turn/steer`、`skills/*` 与上游审批 reverse request 必须在固定版本类型、semantic projection 和 contract fixture 同批落地后才能启用。
+当前实现使用：`thread/start|resume|read`、`thread/turns/list`、`thread/items/list`、`turn/start|interrupt`、固定 Thread/Turn/Item 通知及 11 类 reverse request。用户交互请求进入 Electron pending owner，`item/tool/call` 路由 Rust ToolHost，credential/attestation/current-time 请求由 Electron host-only handler 处理；Renderer 不接触 raw method 或 request id。其他上游 method 必须在固定版本类型、semantic projection 和 contract fixture 同批落地后才能启用。
 
 ## 3. Rust Business Protocol
 
@@ -100,7 +100,7 @@ Rust 中可以存在 `threadId/turnId/callId` 字段作为 ToolCallContext，但
 
 ## 4. Dynamic Tool Route
 
-Codex `thread/start.dynamicTools` 由 Electron 从 Rust tool catalog 读取后生成。固定 `rust-v0.141.0` 的每个顶层业务工具必须编码为 `{ "type": "function", "name", "description", "inputSchema" }`；`initialize.params.capabilities.experimentalApi=true` 是 dynamic tools 的启用条件。
+Codex `thread/start.dynamicTools` 由 Electron 从 Rust tool catalog 读取后生成。固定 `rust-v0.145.0` 的每个顶层业务工具必须编码为 `{ "type": "function", "name", "description", "inputSchema" }`；`initialize.params.capabilities.experimentalApi=true` 是 dynamic tools 的启用条件。
 
 ```text
 item/tool/call from Codex
@@ -140,7 +140,8 @@ preload 当前只暴露 `foundation`、`project`、`agent`、`plan`、`approval`
 - Codex timeout 不等于 Turn 取消；使用 `thread/read` 对账。
 - Rust timeout 不等于 provider/media task 取消；使用 `task/read|reconcile` 对账。
 - Codex crash 后重新握手并按 binding resume/read。
-- 固定 Codex `0.141.0` 的空 Thread 在首条用户消息前不会 materialize。Electron 对同一进程 active 空 Thread直接复用；冷启动只有在 `thread/resume|read` 返回明确 unmaterialized 错误时，才 `thread/start` 并以旧 id 做 `conversation/bind` compare-and-swap。
+- 固定 `0.145.0` 的新 Thread 明确以 `historyMode: "paginated"` 创建：恢复时先分页读取 Turn metadata，再按 `turnId` 使用 `thread/items/list` 读取 `{ turnId, item }` canonical entry。升级前创建的 legacy Thread 仍只消费上游原生可得历史，不在 Electron、Rust 或 Renderer 合成缺失 Item。
+- 空 Thread 在首条用户消息前可能尚未 materialize。Electron 对同一进程 active 空 Thread 直接复用；冷启动只有在 `thread/resume|read` 返回明确 unmaterialized 错误时，才 `thread/start` 并以旧 id 做 `conversation/bind` compare-and-swap。
 - Rust crash 后重新握手并 reconcile task；不得合成或覆盖 Codex history。
 
 ## 8. Contract Tests

@@ -43,7 +43,7 @@ function validateCodexManifest(manifest, errors) {
     errors.push('resources/codex/manifest.v1.json: invalid manifest identity');
     return;
   }
-  if (manifest.version !== '0.141.0' || manifest.sourceRevision !== 'rust-v0.141.0' || manifest.license !== 'Apache-2.0') {
+  if (manifest.version !== '0.145.0' || manifest.sourceRevision !== 'rust-v0.145.0' || manifest.license !== 'Apache-2.0') {
     errors.push('resources/codex/manifest.v1.json: version, revision or license is not pinned');
   }
   if (!Array.isArray(manifest.releases) || manifest.releases.length === 0) {
@@ -56,7 +56,7 @@ function validateCodexManifest(manifest, errors) {
       typeof release.platformKey !== 'string'
       || platforms.has(release.platformKey)
       || typeof release.sourceUrl !== 'string'
-      || !release.sourceUrl.startsWith('https://github.com/openai/codex/releases/download/rust-v0.141.0/')
+      || !release.sourceUrl.startsWith('https://github.com/openai/codex/releases/download/rust-v0.145.0/')
       || typeof release.archiveName !== 'string'
       || typeof release.executableName !== 'string'
       || !sha256.test(release.archiveSha256)

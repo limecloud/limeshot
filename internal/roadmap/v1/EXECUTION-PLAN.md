@@ -82,7 +82,7 @@ Electron direct Codex
 - dynamic tools 不可用时业务动作明确 unavailable，不回退 shell。
 - ToolCallContext 不形成 Rust Agent state。
 
-当前证据：固定 Codex `0.141.0` 在真实 Electron 中依次发起 `project_read` 与 `plan_create`，Electron 将两个 `item/tool/call` 路由到 Rust ToolHost；GUI 用户随后调用 `approval.decide`，Rust 原子写入 `approved` ProductionPlan 与不可变 `ApprovalReceipt`，最后由 semantic API 读回持久化状态。raw `plan/create` RPC 和 `plan_approve` dynamic tool 均不存在。
+当前固定 Codex 为 `0.145.0`。真实 Electron 已验证的业务链依次发起 `project_read` 与 `plan_create`，Electron 将两个 `item/tool/call` 路由到 Rust ToolHost；GUI 用户随后调用 `approval.decide`，Rust 原子写入 `approved` ProductionPlan 与不可变 `ApprovalReceipt`，最后由 semantic API 读回持久化状态。raw `plan/create` RPC 和 `plan_approve` dynamic tool 均不存在。
 
 ## 6. Phase 4：Managed Node 与媒体
 

@@ -26,18 +26,25 @@ import type {
   TaskStartResult,
   ToolDescriptor,
 } from '@business/generated';
+import type { AgentEvent, AgentInteractionExternalOpenInput, AgentInteractionExternalOpenResult, AgentInteractionSubmitInput, AgentInteractionSubmitResult, AgentPendingInteractionProjection, AgentTurnProjection } from './agent';
+
+export type * from './agent';
 
 export const DESKTOP_IPC = {
   foundationRead: 'foundation:read',
-  projectCreate: 'project:create',
   projectOpen: 'project:open',
   projectList: 'project:list',
   projectRead: 'project:read',
   briefUpdate: 'brief:update',
+  conversationList: 'conversation:list',
   conversationStart: 'conversation:start',
+  threadInspect: 'agent:thread-inspect',
   turnStart: 'turn:start',
   turnInterrupt: 'turn:interrupt',
   agentEvent: 'agent:event',
+  interactionList: 'agent:interaction-list',
+  interactionSubmit: 'agent:interaction-submit',
+  interactionOpenExternal: 'agent:interaction-open-external',
   planList: 'plan:list',
   planRead: 'plan:read',
   approvalDecide: 'approval:decide',
@@ -60,60 +67,56 @@ export interface FoundationProjection {
   resources: ManagedResourceDescriptor[];
 }
 
-export interface ProjectCreateInput {
-  profileId: string;
-  language: string;
-  initialSubject?: string;
-}
 export interface ProjectOpenInput {
   profileId: string;
   language: string;
 }
-export type AgentTurnStatus = 'completed' | 'interrupted' | 'failed' | 'inProgress';
-export type AgentItemKind = 'user' | 'assistant' | 'plan' | 'tool' | 'activity';
-export interface AgentItemProjection {
-  id: string;
-  kind: AgentItemKind;
-  text: string;
-  title?: string;
-  status?: string;
+export interface AgentConversationSummary {
+  threadId: string;
+  title: string;
+  updatedAtEpochMs: number;
 }
-export interface AgentTurnProjection {
-  id: string;
-  status: AgentTurnStatus;
-  items: AgentItemProjection[];
-  errorMessage?: string;
+export interface ConversationStartInput {
+  projectId: string | null;
+  conversationId: string;
+  threadId?: string;
 }
-export interface ConversationStartInput { projectId: string; conversationId: string; }
 export interface ConversationStartResult {
   conversationId: string;
   threadId: string;
   turns: AgentTurnProjection[];
   access: 'active' | 'readOnly';
 }
-export interface TurnStartInput { projectId: string; conversationId: string; text: string; }
+export interface AgentThreadInspectInput { parentThreadId: string; threadId: string; }
+export interface AgentThreadInspectResult {
+  threadId: string;
+  parentThreadId: string;
+  name?: string;
+  agentNickname?: string;
+  agentRole?: string;
+  turns: AgentTurnProjection[];
+}
+export interface TurnStartInput { projectId: string | null; conversationId: string; threadId: string; text: string; }
 export interface TurnStartResult { threadId: string; turnId: string; }
 export interface TurnInterruptInput { threadId: string; turnId: string; }
-export type AgentEvent =
-  | { type: 'turn.started'; threadId: string; turn: AgentTurnProjection }
-  | { type: 'message.delta'; threadId: string; turnId: string; itemId: string; delta: string }
-  | { type: 'item.updated'; threadId: string; turnId: string; item: AgentItemProjection }
-  | { type: 'turn.completed'; threadId: string; turn: AgentTurnProjection }
-  | { type: 'agent.error'; threadId?: string; message: string };
 
 export interface DesktopApi {
   foundation: { read(): Promise<FoundationProjection> };
   project: {
-    create(input: ProjectCreateInput): Promise<ProjectCreateResult>;
     open(input: ProjectOpenInput): Promise<ProjectCreateResult | null>;
     list(): Promise<ProjectSummary[]>;
     read(projectId: string): Promise<ProjectReadResult>;
     updateBrief(params: BriefUpdateParams): Promise<BriefUpdateResult>;
   };
   agent: {
+    listConversations(): Promise<AgentConversationSummary[]>;
     startConversation(input: ConversationStartInput): Promise<ConversationStartResult>;
+    inspectSubThread(input: AgentThreadInspectInput): Promise<AgentThreadInspectResult>;
     startTurn(input: TurnStartInput): Promise<TurnStartResult>;
     interrupt(input: TurnInterruptInput): Promise<void>;
+    listInteractions(): Promise<AgentPendingInteractionProjection[]>;
+    submitInteraction(input: AgentInteractionSubmitInput): Promise<AgentInteractionSubmitResult>;
+    openInteractionExternal(input: AgentInteractionExternalOpenInput): Promise<AgentInteractionExternalOpenResult>;
     subscribe(listener: (event: AgentEvent) => void): () => void;
   };
   plan: {

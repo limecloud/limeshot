@@ -5,7 +5,7 @@
 
 ## 当前阶段
 
-Phase 4：旧 Agent runtime 已物理删除并由治理守卫覆盖；真实 Codex `project_read -> plan_create`、Rust ProductionPlan/ApprovalReceipt 和 GUI 用户审批已通过 Electron Gate B。v0.2.0 已接通 `approved Plan -> SourceAsset -> media_probe -> media_transcode -> media-output.v1 + qa-report.v1 -> GUI confirm -> current Deliverable`，包含后台进度、GUI 取消、timeout、原子输出、确定性 QA、显式 retry、交付完整性复验和冷重启恢复；下一步落实 CI 构建的可再分发 FFmpeg release，并进入 Provider reconcile。
+Phase 5：旧 Agent runtime 已物理删除并由治理守卫覆盖；v0.3.0 已固定 Codex `0.145.0`，完成 18 类 Item、72 类 notification、11 类 reverse request、paginated history 与真实 Electron Gate B。Rust 业务链继续覆盖 `approved Plan -> SourceAsset -> media_probe -> media_transcode -> media-output.v1 + qa-report.v1 -> GUI confirm -> current Deliverable`；下一步落实 CI 构建的可再分发 FFmpeg release，并进入 Provider reconcile。
 
 ## 分类
 
@@ -35,11 +35,11 @@ Phase 4：旧 Agent runtime 已物理删除并由治理守卫覆盖；真实 Cod
 - [x] npm lock、TypeScript、contract、Rust、Electron build、基础 Electron/preload/Rust Gate B 已通过。
 - [x] Agent 通过 `plan_create` 创建版本化 ProductionPlan；raw `plan/create` RPC 已删除并有回流守卫。
 - [x] GUI 用户通过 `approval.decide` 批准计划，Rust 原子持久化不可变 `ApprovalReceipt`；Agent 不具备批准工具。
-- [x] Gate B 证明固定 Codex `0.141.0`、两个 dynamic tool、GUI 审批、计划持久化与 history restore。
+- [x] Gate B 证明固定 Codex `0.145.0`、paginated history、全部投影/交互、动态业务工具、GUI 审批与冷启动恢复。
 - [x] 新建项目由 Electron 创建受管 workspace 后直接进入 Codex Conversation，全程不弹系统目录选择器；默认项目页为会话主画布，Brief/Plan 位于真实项目详情面板。
 - [x] 多个 Project 可各自使用默认 `conversationId=main`；旧数据库自动迁移为复合主键，binding 替换使用 `expectedCodexThreadId` compare-and-swap。
 - [x] Gate B 从 GUI 点击新建项目，断言系统目录选择器调用为零，完成受管 workspace、Rust 持久化、Codex thread、binding 和 Conversation ready，并在完整重启 Electron/Codex/Rust 后恢复未发言空会话。
-- [x] 开发入口自动校验并注入固定 Codex `0.141.0` binary；不再要求手工设置 `LIMESHOT_CODEX_BIN`，开发预览可复用显式或默认的本机 Codex home 进入已认证对话。
+- [x] 开发入口自动校验并注入固定 Codex `0.145.0` binary；不再要求手工设置 `LIMESHOT_CODEX_BIN`，开发预览可复用显式或默认的本机 Codex home 进入已认证对话。
 - [x] Electron 系统文件选择器只把用户明确选中的单一素材路径交给 Rust；Rust 复制到受管 workspace 并只向 Renderer 返回 path-free `SourceAsset`。
 - [x] `source-asset/import`、`project/execution/read`、`task/start` 已同步 Rust protocol/schema、client、main/preload semantic gateway 与测试。
 - [x] `task/start` 校验批准状态、不可变 ApprovalReceipt、`media_probe` operation、Project/SourceAsset scope 与输入 hash；未批准、错误 operation、素材变化和 runtime unavailable 全部 fail closed。

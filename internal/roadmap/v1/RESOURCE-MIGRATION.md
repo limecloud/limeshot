@@ -54,7 +54,7 @@ Codex manifest 只供 Electron 使用；Rust Business Service 只能管理 Node/
 ### 3.1 Current
 
 - 本仓库独立编写的 PRD、Skill、schema、provider-neutral catalog 和 service catalog。
-- 固定 `rust-v0.141.0` 的 OpenAI 官方 Codex release 及其 hash/license/NOTICE。
+- 固定 `rust-v0.145.0` 的 OpenAI 官方 Codex release 及其 hash/license/NOTICE。
 - 经过明确来源、许可证和完整性校验的 Node 与 FFmpeg 发行物。
 - 经批准迁移 manifest 登记的源文件。
 

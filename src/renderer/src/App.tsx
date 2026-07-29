@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bot,
   ChevronRight,
   Folder,
+  ListFilter,
   LoaderCircle,
   PanelLeftClose,
   PanelLeftOpen,
@@ -11,7 +11,6 @@ import {
   Send,
   Sparkles,
   Square,
-  Wrench,
   X,
 } from 'lucide-react';
 
@@ -25,19 +24,30 @@ import type {
   ProductionPlan,
 } from '@business/generated';
 import type {
-  AgentItemProjection,
+  AgentConversationSummary,
+  AgentEvent,
+  AgentInteractionExternalOpenInput,
+  AgentInteractionSubmitInput,
+  AgentPendingInteractionProjection,
+  AgentThreadInspectResult,
   AgentTurnProjection,
   ConversationStartResult,
 } from '../../shared/desktop';
 import { AppSidebar } from './AppSidebar';
+import { applyAgentActivityEvent, createAgentActivityState, dismissAgentNotice } from './agentActivityState';
+import { createAgentEventBatcher } from './agentEventBatcher';
 import { applyAgentEvent, runningTurn } from './agentState';
+import { ConversationStatusSurface } from './ConversationStatusSurface';
+import { ConversationTimeline } from './ConversationTimeline';
 import { ExecutionPanel } from './ExecutionPanel';
 import { createTranslator, isTranslationKey, resolveLocale, type TranslationKey } from './i18n';
 import { PlanPanel } from './PlanPanel';
+import { PendingInteractions } from './PendingInteractions';
 import { WorkspaceHome } from './WorkspaceHome';
 
 type LoadState = 'loading' | 'ready' | 'unavailable';
 type ConversationLoadState = 'idle' | 'loading' | 'ready' | 'readOnly' | 'unavailable';
+interface StandaloneTarget { conversationId: string; threadId?: string }
 const MAIN_CONVERSATION_ID = 'main';
 
 export function App() {
@@ -49,39 +59,51 @@ export function App() {
   const [mediaProbeReady, setMediaProbeReady] = useState(false);
   const [mediaTranscodeReady, setMediaTranscodeReady] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [standaloneConversations, setStandaloneConversations] = useState<AgentConversationSummary[]>([]);
   const [projectDetail, setProjectDetail] = useState<ProjectReadResult>();
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
   const [projectLoadError, setProjectLoadError] = useState<string>();
   const [selectedProfileId, setSelectedProfileId] = useState<string>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
+  const [draftProjectId, setDraftProjectId] = useState<string>();
+  const [standaloneTarget, setStandaloneTarget] = useState<StandaloneTarget>();
   const [conversationId, setConversationId] = useState(MAIN_CONVERSATION_ID);
-  const [creatingProject, setCreatingProject] = useState(false);
-  const [projectInspectorOpen, setProjectInspectorOpen] = useState(false);
+  const [openingProject, setOpeningProject] = useState(false);
+  const [inspector, setInspector] = useState<'activity' | 'project'>();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [errorMessage, setErrorMessage] = useState<string>();
   const [conversation, setConversation] = useState<ConversationStartResult>();
+  const [threadViews, setThreadViews] = useState<AgentThreadInspectResult[]>([]);
+  const [openingThreadId, setOpeningThreadId] = useState<string>();
+  const [threadViewError, setThreadViewError] = useState<string>();
+  const [interactions, setInteractions] = useState<AgentPendingInteractionProjection[]>([]);
+  const [activityState, setActivityState] = useState(createAgentActivityState);
+  const [interactionError, setInteractionError] = useState<string>();
   const [conversationLoadState, setConversationLoadState] = useState<ConversationLoadState>('idle');
   const [agentError, setAgentError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [composerText, setComposerText] = useState('');
   const [sending, setSending] = useState(false);
-  const pendingFirstTurn = useRef<{ projectId: string; text: string } | undefined>(undefined);
+  const pendingFirstTurn = useRef<{ targetKey: string; text: string } | undefined>(undefined);
+  const threadNavigationRequest = useRef(0);
 
   const load = useCallback(async () => {
     setLoadState('loading');
     setErrorMessage(undefined);
     try {
-      const [foundationResult, projectResult] = await Promise.all([
+      const [foundationResult, projectResult, conversationResult] = await Promise.all([
         window.limeShot.foundation.read(),
         window.limeShot.project.list(),
+        window.limeShot.agent.listConversations(),
       ]);
       setRuntime(foundationResult.business);
       setProfiles(foundationResult.profiles);
       setMediaProbeReady(foundationResult.services.some((service) => service.serviceId === 'media.probe' && service.state === 'ready'));
       setMediaTranscodeReady(foundationResult.services.some((service) => service.serviceId === 'media.assemble' && service.state === 'ready'));
       setProjects(projectResult);
+      setStandaloneConversations(conversationResult);
       setSelectedProfileId((current) => foundationResult.profiles.some((profile) => profile.profileId === current)
         ? current
         : foundationResult.profiles[0]?.profileId ?? 'general');
@@ -95,6 +117,19 @@ export function App() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let disposed = false;
+    void window.limeShot.agent.listInteractions()
+      .then((pending) => {
+        if (!disposed) setInteractions((current) => recoverInteractions(current, pending));
+      })
+      .catch((error) => {
+        console.error('Failed to restore pending Codex interactions', error);
+        if (!disposed) setInteractionError(t('interaction.loadFailed'));
+      });
+    return () => { disposed = true; };
+  }, [t]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -124,26 +159,37 @@ export function App() {
   }, [selectedProjectId, t]);
 
   useEffect(() => {
+    threadNavigationRequest.current += 1;
+    setThreadViews([]);
+    setOpeningThreadId(undefined);
+    setThreadViewError(undefined);
     setConversation(undefined);
     setAgentError(undefined);
-    if (!selectedProjectId) {
+    if (!selectedProjectId && !standaloneTarget) {
       setConversationLoadState('idle');
       return undefined;
     }
+    const request = selectedProjectId
+      ? { projectId: selectedProjectId, conversationId }
+      : { projectId: null, conversationId: standaloneTarget!.conversationId, threadId: standaloneTarget!.threadId };
+    const targetKey = selectedProjectId
+      ? `project:${selectedProjectId}:${conversationId}`
+      : `standalone:${standaloneTarget!.conversationId}`;
     let disposed = false;
     setConversationLoadState('loading');
-    void window.limeShot.agent.startConversation({ projectId: selectedProjectId, conversationId })
+    void window.limeShot.agent.startConversation(request)
       .then((result) => {
         if (disposed) return;
         setConversation(result);
         setConversationLoadState(result.access === 'active' ? 'ready' : 'readOnly');
         const pending = pendingFirstTurn.current;
-        if (pending?.projectId === selectedProjectId && result.access === 'active') {
+        if (pending?.targetKey === targetKey && result.access === 'active') {
           pendingFirstTurn.current = undefined;
           setSending(true);
           void window.limeShot.agent.startTurn({
-            projectId: selectedProjectId,
+            projectId: request.projectId,
             conversationId: result.conversationId,
+            threadId: result.threadId,
             text: pending.text,
           }).then(() => setComposerText('')).catch((error) => {
             console.error('Failed to send initial Codex turn', error);
@@ -156,25 +202,51 @@ export function App() {
         console.error('Failed to start Codex conversation', error);
         setConversationLoadState('unavailable');
         setAgentError(t('agent.unavailable'));
-      });
+    });
     return () => { disposed = true; };
-  }, [conversationId, selectedProjectId, t]);
+  }, [conversationId, selectedProjectId, standaloneTarget, t]);
 
-  useEffect(() => window.limeShot.agent.subscribe((event) => {
-    if (event.type === 'agent.error') {
-      console.error('Codex agent error', event.message);
-      setAgentError(t('agent.sendFailed'));
-      return;
-    }
-    setConversation((current) => current
-      ? { ...current, turns: applyAgentEvent(current.turns, current.threadId, event) }
-      : current);
-    if (event.type === 'turn.completed' && selectedProjectId) {
-      void window.limeShot.plan.list(selectedProjectId)
-        .then((result) => setPlans(result.plans))
-        .catch((error) => setProjectLoadError(error instanceof Error ? error.message : t('project.readFailed')));
-    }
-  }), [selectedProjectId, t]);
+  useEffect(() => {
+    const batcher = createAgentEventBatcher((events) => {
+      setActivityState((current) => events.reduce(applyAgentActivityEvent, current));
+      const timelineEvents = events.filter((event) => event.type !== 'agent.error');
+      if (timelineEvents.length === 0) return;
+      setConversation((current) => current
+        ? { ...current, turns: timelineEvents.reduce((turns, event) => applyAgentEvent(turns, current.threadId, event), current.turns) }
+        : current);
+      setThreadViews((current) => current.map((view) => ({
+        ...view,
+        turns: timelineEvents.reduce((turns, event) => applyAgentEvent(turns, view.threadId, event), view.turns),
+      })));
+    });
+    const unsubscribe = window.limeShot.agent.subscribe((event: AgentEvent) => {
+      batcher.push(event);
+      if (event.type === 'interaction.updated') {
+        setInteractions((current) => upsertInteraction(current, event.interaction));
+        setInteractionError(undefined);
+      } else if (event.type === 'interaction.resolved') {
+        setInteractions((current) => current.map((interaction) => interaction.interactionId === event.interactionId && (interaction.status === 'pending' || interaction.status === 'submitting')
+          ? { ...interaction, status: 'resolved' } as AgentPendingInteractionProjection
+          : interaction));
+      }
+      if (event.type === 'agent.error') {
+        console.error('Codex agent error', event.message);
+        setAgentError(t('agent.sendFailed'));
+        return;
+      }
+      if (event.type === 'turn.completed' && selectedProjectId) {
+        void window.limeShot.plan.list(selectedProjectId)
+          .then((result) => setPlans(result.plans))
+          .catch((error) => setProjectLoadError(error instanceof Error ? error.message : t('project.readFailed')));
+      } else if (event.type === 'turn.completed' && standaloneTarget) {
+        void window.limeShot.agent.listConversations().then(setStandaloneConversations).catch(() => undefined);
+      }
+    });
+    return () => {
+      unsubscribe();
+      batcher.dispose();
+    };
+  }, [selectedProjectId, standaloneTarget, t]);
 
   const text = (key: string, fallback: string): string => isTranslationKey(key) ? t(key) : fallback;
   const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId);
@@ -183,94 +255,111 @@ export function App() {
     ? projectDetail
     : undefined;
   const activeTurn = conversation ? runningTurn(conversation.turns) : undefined;
+  const threadView = threadViews.at(-1);
+  const visibleThreadId = threadView?.threadId ?? conversation?.threadId;
+  const visibleThreadActivity = visibleThreadId ? activityState.threads[visibleThreadId] : undefined;
+  const runtimeReadOnly = visibleThreadActivity?.lifecycle === 'archived'
+    || visibleThreadActivity?.lifecycle === 'deleted'
+    || visibleThreadActivity?.lifecycle === 'closed'
+    || visibleThreadActivity?.status?.type === 'systemError';
   const conversationTitle = titleFromTurns(conversation?.turns ?? [], t('agent.newConversation'));
   const canSend = Boolean(
-    selectedProject
+    (selectedProject || standaloneTarget)
     && conversation
     && conversationLoadState === 'ready'
+    && !threadView
+    && !runtimeReadOnly
     && !activeTurn
     && !sending
     && composerText.trim(),
   );
 
-  const onProjectCreated = (result: ProjectCreateResult, initialSubject: string) => {
+  const onDirectoryOpened = (result: ProjectCreateResult) => {
     setProjects((current) => [result.project, ...current.filter((item) => item.projectId !== result.project.projectId)]);
-    setProjectDetail(result);
-    setSelectedProjectId(result.project.projectId);
-    setConversationId(MAIN_CONVERSATION_ID);
-    setProjectInspectorOpen(false);
-    setComposerText(initialSubject);
-    if (initialSubject) pendingFirstTurn.current = { projectId: result.project.projectId, text: initialSubject };
+    setSelectedProfileId(result.project.profileId);
+    setDraftProjectId(result.project.projectId);
   };
 
   const openProject = (projectId: string) => {
     const project = projects.find((item) => item.projectId === projectId);
     if (project) setSelectedProfileId(project.profileId);
+    pendingFirstTurn.current = undefined;
+    setStandaloneTarget(undefined);
+    setDraftProjectId(undefined);
+    setSending(false);
     setSelectedProjectId(projectId);
     setConversationId(MAIN_CONVERSATION_ID);
-    setProjectInspectorOpen(false);
+    setInspector(undefined);
     setComposerText('');
   };
 
-  const createProject = async (subject = '') => {
-    if (!selectedProfile || creatingProject) return;
-    setCreatingProject(true);
-    setActionError(undefined);
-    try {
-      const result = await window.limeShot.project.create({
-        profileId: selectedProfile.profileId,
-        language: locale,
-        initialSubject: subject.trim() || undefined,
-      });
-      onProjectCreated(result, subject.trim());
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : t('project.createFailed'));
-    } finally {
-      setCreatingProject(false);
-    }
+  const openStandalone = (threadId: string) => {
+    pendingFirstTurn.current = undefined;
+    setSelectedProjectId(undefined);
+    setDraftProjectId(undefined);
+    setStandaloneTarget({ conversationId: threadId, threadId });
+    setInspector(undefined);
+    setSending(false);
+    setComposerText('');
   };
 
   const openProjectDirectory = async () => {
-    if (!selectedProfile || creatingProject) return;
-    setCreatingProject(true);
+    if (!selectedProfile || openingProject) return;
+    setOpeningProject(true);
     setActionError(undefined);
     try {
       const result = await window.limeShot.project.open({
         profileId: selectedProfile.profileId,
         language: locale,
       });
-      if (result) onProjectCreated(result, '');
+      if (result) onDirectoryOpened(result);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : t('project.createFailed'));
+      setActionError(error instanceof Error ? error.message : t('project.openFailed'));
     } finally {
-      setCreatingProject(false);
+      setOpeningProject(false);
     }
   };
 
   const beginFromHome = () => {
     const subject = composerText.trim();
     if (!subject) return;
-    void createProject(subject);
+    if (draftProjectId) {
+      const nextConversationId = `conversation-${crypto.randomUUID()}`;
+      pendingFirstTurn.current = { targetKey: `project:${draftProjectId}:${nextConversationId}`, text: subject };
+      setStandaloneTarget(undefined);
+      setSelectedProjectId(draftProjectId);
+      setDraftProjectId(undefined);
+      setConversationId(nextConversationId);
+    } else {
+      const nextConversationId = `standalone-${crypto.randomUUID()}`;
+      pendingFirstTurn.current = { targetKey: `standalone:${nextConversationId}`, text: subject };
+      setSelectedProjectId(undefined);
+      setStandaloneTarget({ conversationId: nextConversationId });
+    }
   };
 
   const startNewConversation = () => {
     pendingFirstTurn.current = undefined;
     setSending(false);
     setSelectedProjectId(undefined);
+    setDraftProjectId(undefined);
+    setStandaloneTarget(undefined);
+    setConversation(undefined);
     setConversationId(MAIN_CONVERSATION_ID);
-    setProjectInspectorOpen(false);
+    setInspector(undefined);
     setAgentError(undefined);
     setComposerText('');
   };
 
   const sendTurn = async () => {
-    if (!selectedProject || !conversation || !canSend) return;
+    if ((!selectedProject && !standaloneTarget) || !conversation || !canSend) return;
     setSending(true);
     setAgentError(undefined);
     try {
       await window.limeShot.agent.startTurn({
-        projectId: selectedProject.projectId,
+        projectId: selectedProject?.projectId ?? null,
         conversationId: conversation.conversationId,
+        threadId: conversation.threadId,
         text: composerText.trim(),
       });
       setComposerText('');
@@ -291,23 +380,73 @@ export function App() {
     }
   };
 
+  const openSubThread = async (threadId: string) => {
+    const parentThreadId = threadView?.threadId ?? conversation?.threadId;
+    if (!parentThreadId || !threadId || threadId === parentThreadId || openingThreadId) return;
+    const requestId = ++threadNavigationRequest.current;
+    setOpeningThreadId(threadId);
+    setThreadViewError(undefined);
+    try {
+      const result = await window.limeShot.agent.inspectSubThread({ parentThreadId, threadId });
+      if (threadNavigationRequest.current !== requestId) return;
+      setThreadViews((current) => {
+        const currentParentId = current.at(-1)?.threadId ?? conversation?.threadId;
+        return currentParentId === parentThreadId ? [...current, result] : current;
+      });
+    } catch (error) {
+      console.error('Failed to inspect Codex sub-thread', error);
+      if (threadNavigationRequest.current === requestId) setThreadViewError(t('agent.subThreadOpenFailed'));
+    } finally {
+      if (threadNavigationRequest.current === requestId) setOpeningThreadId(undefined);
+    }
+  };
+
+  const closeSubThread = () => {
+    threadNavigationRequest.current += 1;
+    setOpeningThreadId(undefined);
+    setThreadViewError(undefined);
+    setThreadViews((current) => current.slice(0, -1));
+  };
+
+  const submitPendingInteraction = async (input: AgentInteractionSubmitInput) => {
+    setInteractionError(undefined);
+    setInteractions((current) => setInteractionStatus(current, input.interactionId, 'submitting'));
+    try {
+      await window.limeShot.agent.submitInteraction(input);
+      setInteractions((current) => setInteractionStatus(current, input.interactionId, 'resolved'));
+    } catch (error) {
+      console.error('Failed to submit Codex interaction', error);
+      setInteractions((current) => setInteractionStatus(current, input.interactionId, 'pending', 'submitting'));
+      setInteractionError(t('interaction.submitFailed'));
+    }
+  };
+
+  const openInteractionExternal = async (input: AgentInteractionExternalOpenInput) => {
+    await window.limeShot.agent.openInteractionExternal(input);
+  };
+
   return (
     <main className="app-shell" data-testid="app-shell" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}>
       {!sidebarCollapsed ? (
         <AppSidebar
           projects={projects}
+          conversations={standaloneConversations}
           selectedProjectId={selectedProjectId}
+          selectedThreadId={standaloneTarget?.threadId}
           conversationTitle={conversationTitle}
-          creatingProject={creatingProject}
           searchOpen={searchOpen}
           searchQuery={searchQuery}
           footer={<RuntimeStatus loadState={loadState} runtime={runtime} errorMessage={errorMessage} onRetry={load} t={t} />}
           onHome={startNewConversation}
           onNewConversation={startNewConversation}
-          onNewProject={() => void openProjectDirectory()}
+          onConversationSelect={openStandalone}
           onSearchOpenChange={setSearchOpen}
           onSearchQueryChange={setSearchQuery}
           onProjectSelect={openProject}
+          onProjectEdit={(projectId) => {
+            openProject(projectId);
+            setInspector('project');
+          }}
           t={t}
         />
       ) : null}
@@ -317,37 +456,69 @@ export function App() {
           <button type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>
             {sidebarCollapsed ? <PanelLeftOpen size={15} aria-hidden="true" /> : <PanelLeftClose size={15} aria-hidden="true" />}
           </button>
-          <span className="workspace-toolbar-title">{selectedProject ? conversationTitle : t('home.workspaceTitle')}</span>
+          <span className="workspace-toolbar-title">{selectedProject || standaloneTarget ? conversationTitle : t('home.workspaceTitle')}</span>
           <span className="workspace-toolbar-spacer" />
+          {selectedProject || standaloneTarget ? (
+            <button
+              type="button"
+              data-active={inspector === 'activity' ? 'true' : 'false'}
+              onClick={() => setInspector((current) => current === 'activity' ? undefined : 'activity')}
+              title={inspector === 'activity' ? t('activity.closePanel') : t('activity.openPanel')}
+            >
+              <ListFilter size={15} aria-hidden="true" />
+            </button>
+          ) : null}
           {selectedProject ? (
             <button
               type="button"
-              data-active={projectInspectorOpen ? 'true' : 'false'}
-              onClick={() => setProjectInspectorOpen((current) => !current)}
-              title={projectInspectorOpen ? t('project.closeDetails') : t('project.openDetails')}
+              data-active={inspector === 'project' ? 'true' : 'false'}
+              onClick={() => setInspector((current) => current === 'project' ? undefined : 'project')}
+              title={inspector === 'project' ? t('project.closeDetails') : t('project.openDetails')}
             >
-              {projectInspectorOpen ? <PanelRightClose size={15} aria-hidden="true" /> : <PanelRightOpen size={15} aria-hidden="true" />}
+              {inspector === 'project' ? <PanelRightClose size={15} aria-hidden="true" /> : <PanelRightOpen size={15} aria-hidden="true" />}
             </button>
           ) : null}
         </header>
 
-        {selectedProject ? (
-          <div className="project-conversation-layout" data-inspector-open={projectInspectorOpen ? 'true' : 'false'}>
-            <section className="conversation-workspace" data-testid="agent-panel" data-agent-state={conversationLoadState}>
+        {selectedProject || standaloneTarget ? (
+          <div className="project-conversation-layout" data-inspector={inspector ?? 'closed'}>
+            <section
+              className="conversation-workspace"
+              data-testid="agent-panel"
+              data-agent-state={conversationLoadState}
+              data-conversation-id={conversation?.conversationId ?? ''}
+              data-thread-id={conversation?.threadId ?? ''}
+            >
               <ConversationTimeline
-                turns={conversation?.turns ?? []}
-                loadState={conversationLoadState}
-                errorMessage={agentError}
+                turns={threadView?.turns ?? conversation?.turns ?? []}
+                loadState={threadView ? 'readOnly' : conversationLoadState}
+                errorMessage={threadViewError ?? agentError}
+                t={t}
+                threadContext={threadView ? {
+                  title: threadView.agentNickname || threadView.name || t('agent.subThread'),
+                  ...(threadView.agentRole ? { subtitle: threadView.agentRole } : {}),
+                } : undefined}
+                onBackThread={threadView ? closeSubThread : undefined}
+                onOpenThread={(threadId) => void openSubThread(threadId)}
+                openingThreadId={openingThreadId}
+              />
+              <PendingInteractions
+                interactions={interactions}
+                currentThreadId={threadView?.threadId ?? conversation?.threadId}
+                turns={threadView?.turns ?? conversation?.turns ?? []}
+                onSubmit={submitPendingInteraction}
+                onOpenExternal={openInteractionExternal}
+                errorMessage={interactionError}
                 t={t}
               />
               <footer className="composer-shell">
                 <div className="composer-field">
                   <textarea
-                    aria-label={t('agent.inputPlaceholder')}
-                    placeholder={t('agent.inputPlaceholder')}
+                    aria-label={threadView ? t('agent.subThreadReadOnly') : t('agent.inputPlaceholder')}
+                    placeholder={threadView ? t('agent.subThreadReadOnly') : t('agent.inputPlaceholder')}
                     value={composerText}
                     rows={2}
-                    disabled={conversationLoadState !== 'ready' || Boolean(activeTurn) || sending}
+                    disabled={Boolean(threadView) || runtimeReadOnly || conversationLoadState !== 'ready' || Boolean(activeTurn) || sending}
                     onChange={(event) => setComposerText(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && !event.shiftKey && canSend) {
@@ -358,10 +529,10 @@ export function App() {
                   />
                   <footer>
                     <div className="composer-context">
-                      <span><Sparkles size={14} aria-hidden="true" />{text(selectedProfile?.nameKey ?? '', selectedProfile?.profileId ?? selectedProject.profileId)}</span>
-                      <span><Folder size={14} aria-hidden="true" />{selectedProject.workspaceName}</span>
+                      <span><Sparkles size={14} aria-hidden="true" />{text(selectedProfile?.nameKey ?? '', selectedProfile?.profileId ?? selectedProject?.profileId ?? 'general')}</span>
+                      {selectedProject ? <span><Folder size={14} aria-hidden="true" />{selectedProject.workspaceName}</span> : <span>{t('home.noProject')}</span>}
                     </div>
-                    {activeTurn ? (
+                    {!threadView && activeTurn ? (
                       <button className="send-button" type="button" onClick={() => void interruptTurn()} title={t('agent.interrupt')}>
                         <Square size={15} aria-hidden="true" />
                       </button>
@@ -375,13 +546,31 @@ export function App() {
               </footer>
             </section>
 
-            {projectInspectorOpen ? (
-              <aside className="project-inspector" aria-label={t('project.details')}>
+            {inspector === 'activity' ? (
+              <aside className="workspace-inspector conversation-activity-inspector" aria-label={t('activity.region')}>
+                <header>
+                  <strong>{t('activity.region')}</strong>
+                  <button type="button" onClick={() => setInspector(undefined)} title={t('activity.closePanel')}><X size={16} aria-hidden="true" /></button>
+                </header>
+                <div className="workspace-inspector-body conversation-activity-inspector-body">
+                  <ConversationStatusSurface
+                    state={activityState}
+                    threadId={visibleThreadId}
+                    onDismissNotice={(noticeId) => setActivityState((current) => dismissAgentNotice(current, noticeId))}
+                    onSelectFile={(path) => {
+                      if (!threadView && !runtimeReadOnly) setComposerText((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}@${path} `);
+                    }}
+                    t={t}
+                  />
+                </div>
+              </aside>
+            ) : selectedProject && inspector === 'project' ? (
+              <aside className="workspace-inspector project-inspector" aria-label={t('project.details')}>
                 <header>
                   <div><strong>{selectedProject.name}</strong><span>{selectedProject.workspaceName}</span></div>
-                  <button type="button" onClick={() => setProjectInspectorOpen(false)} title={t('project.closeDetails')}><X size={16} aria-hidden="true" /></button>
+                  <button type="button" onClick={() => setInspector(undefined)} title={t('project.closeDetails')}><X size={16} aria-hidden="true" /></button>
                 </header>
-                <div className="project-inspector-body">
+                <div className="workspace-inspector-body project-inspector-body">
                   {selectedProjectDetail ? (
                     <ProjectOverview
                       detail={selectedProjectDetail}
@@ -402,11 +591,13 @@ export function App() {
             profiles={profiles}
             projects={projects}
             selectedProfileId={selectedProfileId}
+            selectedProjectId={draftProjectId}
             composerText={composerText}
-            submitting={creatingProject}
+            submitting={openingProject}
             onProfileSelect={setSelectedProfileId}
             onComposerTextChange={setComposerText}
-            onProjectSelect={openProject}
+            onProjectSelect={setDraftProjectId}
+            onProjectBrowse={() => void openProjectDirectory()}
             onSubmit={beginFromHome}
             text={text}
             t={t}
@@ -414,77 +605,9 @@ export function App() {
         )}
       </section>
 
-      {creatingProject ? <div className="project-creating-indicator" role="status"><LoaderCircle size={15} aria-hidden="true" />{t('project.creating')}</div> : null}
+      {openingProject ? <div className="project-creating-indicator" role="status"><LoaderCircle size={15} aria-hidden="true" />{t('project.opening')}</div> : null}
       {actionError ? <div className="app-action-error" role="alert"><span>{actionError}</span><button type="button" onClick={() => setActionError(undefined)} title={t('project.dialogClose')}><X size={14} aria-hidden="true" /></button></div> : null}
     </main>
-  );
-}
-
-interface ConversationTimelineProps {
-  turns: AgentTurnProjection[];
-  loadState: ConversationLoadState;
-  errorMessage?: string;
-  t: (key: TranslationKey) => string;
-}
-
-function ConversationTimeline({ turns, loadState, errorMessage, t }: ConversationTimelineProps) {
-  const itemCount = turns.reduce((count, turn) => count + turn.items.length, 0);
-  return (
-    <div className="conversation-scroll">
-      <div className="agent-timeline" aria-live="polite">
-        {loadState === 'loading' ? <p className="agent-empty">{t('agent.connecting')}</p> : null}
-        {itemCount === 0 && loadState !== 'loading' ? <p className="agent-empty">{t('agent.empty')}</p> : null}
-        {turns.map((turn) => <ConversationTurn turn={turn} t={t} key={turn.id} />)}
-        {errorMessage ? <p className="agent-error" role="alert">{errorMessage}</p> : null}
-      </div>
-    </div>
-  );
-}
-
-function ConversationTurn({ turn, t }: { turn: AgentTurnProjection; t: (key: TranslationKey) => string }) {
-  const activityItems = turn.items.filter((item) => item.kind === 'tool' || item.kind === 'activity');
-  const userItems = turn.items.filter((item) => item.kind === 'user');
-  const responseItems = turn.items.filter((item) => item.kind !== 'user' && item.kind !== 'tool' && item.kind !== 'activity');
-  return (
-    <section className="agent-turn" data-status={turn.status}>
-      {userItems.map((item) => <AgentItem item={item} t={t} key={item.id} />)}
-      {activityItems.length > 0 ? (
-        <details className="agent-activity" data-tools={activityItems.map((item) => item.title).filter(Boolean).join(' ')}>
-          <summary><ChevronRight size={14} aria-hidden="true" /><span>{t('agent.processed')}</span><small>{activityItems.length}</small></summary>
-          <div>{activityItems.map((item) => <AgentItem item={item} t={t} key={item.id} />)}</div>
-        </details>
-      ) : null}
-      {responseItems.map((item) => <AgentItem item={item} t={t} key={item.id} />)}
-      {turn.status === 'failed' ? <p className="agent-error" role="alert">{t('agent.sendFailed')}</p> : null}
-    </section>
-  );
-}
-
-function AgentItem({ item, t }: { item: AgentItemProjection; t: (key: TranslationKey) => string }) {
-  if (item.kind === 'user') {
-    return <article className="agent-item" data-kind="user"><p>{item.text}</p></article>;
-  }
-  if (item.kind === 'tool' || item.kind === 'activity') {
-    return (
-      <article className="agent-item" data-kind={item.kind}>
-        <div className="agent-item-label">
-          <ChevronRight size={14} aria-hidden="true" />
-          <Wrench size={13} aria-hidden="true" />
-          <span>{item.title ?? t('agent.tool')}</span>
-          {item.status ? <em>{item.status}</em> : null}
-        </div>
-        {item.text ? <p>{item.text}</p> : null}
-      </article>
-    );
-  }
-  if (item.kind === 'assistant') {
-    return <article className="agent-item" data-kind="assistant">{item.text ? <p>{item.text}</p> : null}</article>;
-  }
-  return (
-    <article className="agent-item" data-kind={item.kind}>
-      <div className="agent-item-label"><Bot size={14} aria-hidden="true" /><span>{t('agent.plan')}</span></div>
-      {item.text ? <p>{item.text}</p> : null}
-    </article>
   );
 }
 
@@ -492,6 +615,31 @@ function titleFromTurns(turns: AgentTurnProjection[], fallback: string): string 
   const firstUserMessage = turns.flatMap((turn) => turn.items).find((item) => item.kind === 'user')?.text.trim();
   if (!firstUserMessage) return fallback;
   return firstUserMessage.length > 28 ? `${firstUserMessage.slice(0, 28)}...` : firstUserMessage;
+}
+
+function upsertInteraction(current: AgentPendingInteractionProjection[], next: AgentPendingInteractionProjection): AgentPendingInteractionProjection[] {
+  const updated = current.some((interaction) => interaction.interactionId === next.interactionId)
+    ? current.map((interaction) => interaction.interactionId === next.interactionId ? next : interaction)
+    : [...current, next];
+  return updated.sort((left, right) => left.createdAt - right.createdAt).slice(-50);
+}
+
+function recoverInteractions(current: AgentPendingInteractionProjection[], recovered: AgentPendingInteractionProjection[]): AgentPendingInteractionProjection[] {
+  return recovered.reduce((result, interaction) => {
+    const existing = result.find((entry) => entry.interactionId === interaction.interactionId);
+    return existing && existing.status !== 'pending' ? result : upsertInteraction(result, interaction);
+  }, current);
+}
+
+function setInteractionStatus(
+  current: AgentPendingInteractionProjection[],
+  interactionId: string,
+  status: AgentPendingInteractionProjection['status'],
+  onlyFrom?: AgentPendingInteractionProjection['status'],
+): AgentPendingInteractionProjection[] {
+  return current.map((interaction) => interaction.interactionId === interactionId && (!onlyFrom || interaction.status === onlyFrom)
+    ? { ...interaction, status } as AgentPendingInteractionProjection
+    : interaction);
 }
 
 interface ProjectOverviewProps {

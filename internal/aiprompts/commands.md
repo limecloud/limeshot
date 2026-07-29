@@ -20,22 +20,22 @@ Renderer 只看产品语义：
 | Domain | Renderer API | Main route |
 | --- | --- | --- |
 | Foundation | `foundation.read` | Rust status/catalog 聚合投影 |
-| Project | `project.create`、`project.open`、`project.list`、`project.read`、`project.updateBrief` | `project.open` 先经 Electron 系统目录选择器；其余调用与选中结果经 Rust business client |
-| Conversation | `agent.startConversation` | Codex client + Rust binding |
+| Project | `project.open`、`project.list`、`project.read`、`project.updateBrief` | `project.open` 先经 Electron 系统目录选择器；选中本地文件夹后经 Rust business client 登记 Project |
+| Conversation | `agent.listConversations`、`agent.startConversation` | standalone 只访问 Codex；Project Conversation 访问 Codex client + Rust binding |
 | Turn | `agent.startTurn`、`agent.interrupt`、`agent.subscribe` | Codex client |
 | Catalog | 包含在 `foundation.read` | Rust business client |
 | Plan | `plan.list`、`plan.read` | Rust business client |
 | Approval | `approval.decide` | Rust business client；只允许当前 GUI 用户动作 |
-| SourceAsset | `sourceAsset.import` | Electron 系统文件选择器 + Rust 受管 workspace import |
+| SourceAsset | `sourceAsset.import` | Electron 系统文件选择器 + Rust Project workspace import |
 | Execution | `execution.read` | Rust TaskRun / MediaJob / Artifact / Deliverable projection |
 | Task | `task.start`、`task.cancel`、`task.retry` | Rust structured media operation；只允许当前 GUI 用户动作 |
 | Deliverable | `deliverable.confirm` | Rust QA/hash 复验与 current 切换；只允许当前 GUI 用户动作 |
 
 Renderer 不得提交任意 Codex method、Rust JSON-RPC method、可执行文件、脚本路径、环境变量、provider request 或 FFmpeg argv。
 
-`project.create` 是“从首页需求创建受管 Project 并进入会话”的语义命令：Renderer 只提交 `profileId/language/initialSubject?`，Electron 在应用数据区分配受管 workspace，再构造 Rust `project/create` 参数。该命令不得打开系统目录选择器。
+Renderer 不暴露 `project.create`。`project.open` 是从 Composer 底部 `+` 菜单选择本地项目的唯一创建入口：Renderer 只提交 `profileId/language`，Electron 打开系统目录选择器；取消选择返回 `null`，选中一个目录后由 Electron 使用目录 basename 和绝对路径构造 Rust `project/create` 参数。目录路径不得经过 preload 返回 Renderer，也不得恢复自定义项目表单。
 
-`project.open` 是侧栏“新建项目”的目录项目语义命令：Renderer 只提交 `profileId/language`，Electron 打开系统目录选择器；取消选择返回 `null`，选中一个目录后由 Electron 使用目录 basename 和绝对路径构造 Rust `project/create` 参数。目录路径不得经过 preload 返回 Renderer，也不得恢复自定义项目表单。
+未选择 Project 时，`agent.startConversation({ projectId: null, ... })` 创建或恢复 standalone Codex Thread，不读写 Rust Conversation binding，不加载 Project 动态工具，也不能启动媒体业务任务。选择本地 Project 后，提交首页需求才创建该 Project 下的 Conversation 和首个 Turn；仅选择文件夹不得提前创建 Codex Thread。
 
 `conversation/bind` 的唯一键是 `(projectId, conversationId)`；不同 Project 可以同时使用默认 `conversationId=main`。首次绑定必须传 `expectedCodexThreadId=null`。只有 Electron 已从 Codex 收到明确的空 Thread 未持久化错误时，才可传旧 thread id 做 compare-and-swap 替换；普通 resume/read 错误不得触发覆盖。
 
@@ -44,12 +44,14 @@ Renderer 不得提交任意 Codex method、Rust JSON-RPC method、可执行文�
 当前 Electron main 的固定 Codex allowlist：
 
 - lifecycle：`initialize`、`initialized`；
-- thread：`thread/start`、`thread/resume`、`thread/read`；
+- thread：`thread/start`、`thread/resume`、`thread/read`、`thread/list`、`thread/turns/list`、`thread/items/list`；
 - turn：`turn/start`、`turn/interrupt`；
-- reverse request：`item/tool/call`；
-- notifications：透传为 `agent.subscribe` 的上游 Thread/Turn/Item 事件。
+- skills：`skills/extraRoots/set`；
+- GUI reverse request：Command、File、Permission Approval，`item/tool/requestUserInput` 与 `mcpServer/elicitation/request`；
+- host reverse request：`item/tool/call`、ChatGPT token refresh、attestation、current time，以及去重兼容的 legacy exec/patch approval；
+- notifications：72 类固定上游事件经 main semantic projection 转换为 `agent.subscribe` 事件。
 
-`thread/list`、`thread/name/set`、`turn/steer`、`skills/*` 和上游审批 reverse request 需在固定版本类型、semantic projection 与 contract fixture 同时落地后才能加入 allowlist。
+`thread/name/set`、`turn/steer` 等其他 method 需在固定版本类型、semantic projection 与 contract fixture 同时落地后才能加入 allowlist。`thread/list` 仅按 Electron 拥有的 standalone cwd 过滤最近会话；paginated history 只通过 `thread/turns/list` 与 `thread/items/list` 读取 canonical 上游事实。
 
 Codex request id、envelope 和错误只存在于 Electron main。不得把上游协议重新生成成 Rust business protocol。
 

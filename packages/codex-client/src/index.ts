@@ -7,12 +7,17 @@ import type {
   CodexRequestMethod,
   CodexRequestParams,
   CodexRequestResult,
+  CodexServerRequestMeta,
+  CodexServerRequestMethod,
+  CodexServerRequestParams,
+  CodexServerRequestResult,
 } from './types';
+import { isCodexNotificationMethod } from './types';
 
 interface CodexPeer { stdin: Writable; stdout: Readable }
 interface Pending { resolve(value: unknown): void; reject(error: Error): void }
-interface NativeMessage { id?: number; method?: string; params?: unknown; result?: unknown; error?: { code: number; message: string } }
-type ReverseHandler = (params: unknown) => Promise<unknown>;
+interface NativeMessage { id?: number | string; method?: string; params?: unknown; result?: unknown; error?: { code: number; message: string } }
+type ReverseHandler = (params: unknown, meta: { id: number | string; method: string }) => Promise<unknown>;
 
 export class CodexRpcError extends Error {
   constructor(public readonly code: number, message: string) {
@@ -47,8 +52,11 @@ export class CodexClient {
     return this.requestRaw(method, params) as Promise<CodexRequestResult<M>>;
   }
 
-  handle(method: string, handler: ReverseHandler): () => void {
-    this.reverseHandlers.set(method, handler);
+  handle<M extends CodexServerRequestMethod>(
+    method: M,
+    handler: (params: CodexServerRequestParams<M>, meta: CodexServerRequestMeta<M>) => Promise<CodexServerRequestResult<M>>,
+  ): () => void {
+    this.reverseHandlers.set(method, handler as ReverseHandler);
     return () => this.reverseHandlers.delete(method);
   }
 
@@ -84,15 +92,22 @@ export class CodexClient {
       this.failPending(new Error('Codex native protocol must not contain jsonrpc'));
       return;
     }
-    if (typeof message.id === 'number' && typeof message.method === 'string') {
+    if ((typeof message.id === 'number' || typeof message.id === 'string') && typeof message.method === 'string') {
       const handler = this.reverseHandlers.get(message.method);
       if (!handler) { this.write({ id: message.id, error: { code: -32601, message: 'Method not found' } }); return; }
-      try { this.write({ id: message.id, result: await handler(message.params) }); }
-      catch (error) { this.write({ id: message.id, error: { code: -32000, message: error instanceof Error ? error.message : 'Reverse request failed' } }); }
+      try {
+        const result = await handler(message.params, { id: message.id, method: message.method });
+        if (!this.closed) this.write({ id: message.id, result });
+      } catch (error) {
+        if (!this.closed) this.write({ id: message.id, error: { code: -32000, message: error instanceof Error ? error.message : 'Reverse request failed' } });
+      }
       return;
     }
     if (typeof message.method === 'string') {
-      for (const listener of this.notificationListeners) listener({ method: message.method, params: message.params });
+      const notification: CodexNotification = isCodexNotificationMethod(message.method)
+        ? { method: message.method, params: message.params }
+        : { method: 'unknown', sourceMethod: message.method, params: message.params };
+      for (const listener of this.notificationListeners) listener(notification);
       return;
     }
     if (typeof message.id !== 'number') return;

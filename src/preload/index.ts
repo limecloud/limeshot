@@ -3,11 +3,17 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   DESKTOP_IPC,
   type AgentEvent,
+  type AgentInteractionExternalOpenInput,
+  type AgentInteractionExternalOpenResult,
+  type AgentInteractionSubmitInput,
+  type AgentInteractionSubmitResult,
+  type AgentPendingInteractionProjection,
+  type AgentThreadInspectInput,
+  type AgentThreadInspectResult,
   type ConversationStartInput,
   type ConversationStartResult,
   type DesktopApi,
   type FoundationProjection,
-  type ProjectCreateInput,
   type ProjectOpenInput,
   type TurnInterruptInput,
   type TurnStartInput,
@@ -37,16 +43,20 @@ import type {
 const api: DesktopApi = {
   foundation: { read: (): Promise<FoundationProjection> => ipcRenderer.invoke(DESKTOP_IPC.foundationRead) },
   project: {
-    create: (input: ProjectCreateInput): Promise<ProjectCreateResult> => ipcRenderer.invoke(DESKTOP_IPC.projectCreate, input),
     open: (input: ProjectOpenInput): Promise<ProjectCreateResult | null> => ipcRenderer.invoke(DESKTOP_IPC.projectOpen, input),
     list: (): Promise<ProjectSummary[]> => ipcRenderer.invoke(DESKTOP_IPC.projectList),
     read: (projectId: string): Promise<ProjectReadResult> => ipcRenderer.invoke(DESKTOP_IPC.projectRead, projectId),
     updateBrief: (params: BriefUpdateParams): Promise<BriefUpdateResult> => ipcRenderer.invoke(DESKTOP_IPC.briefUpdate, params),
   },
   agent: {
+    listConversations: () => ipcRenderer.invoke(DESKTOP_IPC.conversationList),
     startConversation: (input: ConversationStartInput): Promise<ConversationStartResult> => ipcRenderer.invoke(DESKTOP_IPC.conversationStart, input),
+    inspectSubThread: (input: AgentThreadInspectInput): Promise<AgentThreadInspectResult> => ipcRenderer.invoke(DESKTOP_IPC.threadInspect, input),
     startTurn: (input: TurnStartInput): Promise<TurnStartResult> => ipcRenderer.invoke(DESKTOP_IPC.turnStart, input),
     interrupt: (input: TurnInterruptInput): Promise<void> => ipcRenderer.invoke(DESKTOP_IPC.turnInterrupt, input),
+    listInteractions: (): Promise<AgentPendingInteractionProjection[]> => ipcRenderer.invoke(DESKTOP_IPC.interactionList),
+    submitInteraction: (input: AgentInteractionSubmitInput): Promise<AgentInteractionSubmitResult> => ipcRenderer.invoke(DESKTOP_IPC.interactionSubmit, input),
+    openInteractionExternal: (input: AgentInteractionExternalOpenInput): Promise<AgentInteractionExternalOpenResult> => ipcRenderer.invoke(DESKTOP_IPC.interactionOpenExternal, input),
     subscribe: (listener: (event: AgentEvent) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, value: AgentEvent) => listener(value);
       ipcRenderer.on(DESKTOP_IPC.agentEvent, handler);

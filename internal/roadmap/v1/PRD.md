@@ -46,7 +46,7 @@ v1 不是单一模型生成器，也不是传统时间线剪辑器。产品价�
 
 ### 2.1 项目是业务容器
 
-所有 Brief、素材、对话、计划、任务、产物和交付记录必须归属一个 Project。LimeShot v1 不创建脱离项目的业务 Conversation 或媒体任务，确保用户可以按项目恢复完整生产上下文。
+所有 Brief、素材、业务 Conversation、计划、任务、产物和交付记录必须归属一个本地文件夹 Project。LimeShot 同时支持不绑定 Project 的 standalone Codex 会话；standalone 不进入 Rust 业务投影，不加载 Project 动态工具，也不能创建媒体任务或交付物。
 
 ### 2.2 场景是业务入口
 
@@ -296,32 +296,33 @@ Deliverable 不是文件副本，而是用户确认的交付记录：
 
 ## 7. 核心任务流
 
-### 7.1 首次创建或打开项目
+### 7.1 新建会话或选择本地项目
 
 ```text
 打开 LimeShot
   -> 选择五类 Business Profile 之一
   -> 在首页输入首个制作需求
-  -> Electron 自动分配受管 workspace
-  -> 创建 Project 与 incomplete Brief
-  -> 立即进入 Codex Conversation
+  -> 未选择 Project 时创建 standalone Codex Thread
   -> 自动发送需求为首个 Turn
 
 或
 
-点击侧栏“新建项目”
+点击 Composer 底部“+”并选择本地文件夹
   -> Electron 打开系统目录选择器
   -> 用户选择或新建一个目录
   -> 以该目录创建 Project 与 incomplete Brief
-  -> 立即进入 Codex Conversation
+  -> 保持首页与当前输入不变
+  -> 用户提交需求时创建 Project Conversation 并发送首个 Turn
 ```
 
 要求：
 
 - 首屏必须让用户先理解“做什么”，不要求先选模型或 runtime。
-- 首页提交需求不得弹出系统目录选择器；workspace 必须由 Electron 在应用数据区创建和授权。
-- 侧栏“新建项目”必须打开系统目录选择器；用户取消时不得创建 Project 或 Conversation。
-- Renderer 在两条路径中都不提交任意 workspace path；目录项目的选中路径只存在于 Electron Main 与 Rust Business Service 边界内。
+- 首页五类 Profile 入口与说明区固定保留在 Composer 上方；不得用 Project 下拉框替换或挤占该区域。
+- Composer 底部采用 `+ / 当前 Project / Profile / 发送` 布局；`+` 菜单提供 standalone、已有本地 Project 与“选择或新建文件夹”。
+- 未选择 Project 时提交需求不得弹出目录选择器或创建 Rust Project。
+- “选择或新建文件夹”必须打开系统目录选择器；用户取消时不得创建 Project 或 Conversation。
+- Renderer 不提交或接收任意 workspace path；目录项目的选中路径只存在于 Electron Main 与 Rust Business Service 边界内。
 - 不显示自定义“项目名称 + 内容目标”创建弹窗；Brief 缺口由 Conversation 收集，并可在项目详情中结构化编辑。
 - 若资源尚未准备完成，可进入只读项目，但 Agent 和媒体动作显示不可用原因。
 
@@ -382,11 +383,11 @@ Deliverable 不是文件副本，而是用户确认的交付记录：
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
-| `PRJ-01` | 用户可从固定的五类 Business Profile 一键创建受管项目并直接进入 Conversation | P0 |
+| `PRJ-01` | 用户可从 Composer 底部 `+` 菜单选择已有本地 Project，或选择/新建本地文件夹后开始 Project Conversation | P0 |
 | `PRJ-02` | 左侧导航显示 active 项目，支持搜索和归档筛选 | P0 |
 | `PRJ-03` | 项目恢复时回到最近工作视图，并重建真实状态 | P0 |
 | `PRJ-04` | 项目名称、Business Profile 和交付规格可编辑；Profile 改变后重校验 Brief 和计划 | P0 |
-| `PRJ-05` | Conversation、Brief、素材、计划、任务和交付物不得脱离 Project | P0 |
+| `PRJ-05` | Brief、素材、业务 Conversation、计划、任务和交付物不得脱离 Project；standalone Codex 会话不得获得这些业务能力 | P0 |
 
 ### 8.2 Business Profile
 
@@ -420,7 +421,7 @@ Deliverable 不是文件副本，而是用户确认的交付记录：
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
-| `AGT-01` | 每个项目有一个可恢复的主 Conversation | P0 |
+| `AGT-01` | standalone Codex 会话与 Project Conversation 均可恢复，并保持 Project 绑定边界 | P0 |
 | `AGT-02` | 输入器可引用 Brief、素材、计划和 Artifact，不直接传大文件 | P0 |
 | `AGT-03` | 流式展示回复、工具调用、等待输入、等待批准和失败状态 | P0 |
 | `AGT-04` | 用户可中断当前 Turn，已完成内容仍可见 | P0 |
@@ -545,7 +546,6 @@ TaskRun 不复制 Codex Turn 或维护第二套 Agent stage DAG。本地媒体�
 
 ```text
 新建会话
-新建项目（选择本地目录）
 搜索
 
 项目
@@ -570,7 +570,7 @@ TaskRun 不复制 Codex Turn 或维护第二套 Agent stage DAG。本地媒体�
 - `口播视频`
 - `电商视频`
 
-选中 Profile 后，下方区域展示其目标、业务提示和交付预期。输入器显示当前 Profile 与 Project；提交首个需求时由 Electron 自动创建受管 workspace 和 Project，启动 Conversation 并发送首个 Turn，不弹系统目录选择器。侧栏“新建项目”是独立的本地目录入口。需要用户取舍时，可展示由 catalog 验证的同一 capability 候选方案，但不暴露 provider 私有 task code。账户、余额与充值只有在真实 Cost/Account owner 落地后才进入默认 GUI，不显示假入口。
+选中 Profile 后，下方区域展示其目标、业务提示和交付预期，该区域必须保持在 Composer 上方。Composer 底部复用桌面 Codex 的紧凑工具栏形态：左侧 `+` 打开向上浮层，用于选择 standalone、已有本地 Project 或“选择或新建文件夹”；底栏持续显示当前 Project，右侧保留 Profile 与发送按钮。未选择 Project 时提交首个需求会启动 standalone Codex Thread；选择本地 Project 后提交才启动 Project Conversation。需要用户取舍时，可展示由 catalog 验证的同一 capability 候选方案，但不暴露 provider 私有 task code。账户、余额与充值只有在真实 Cost/Account owner 落地后才进入默认 GUI，不显示假入口。
 
 ### 10.3 项目工作区
 
@@ -662,7 +662,7 @@ v1 可提供少量结构化预设，但必须展示最终规格：
 
 ## 13. 权限、隐私与业务安全
 
-- 只处理 Electron 创建的 Project 受管 workspace，以及用户通过独立系统对话框明确导入的外部素材。
+- 只处理用户通过系统目录选择器明确授权的本地 Project workspace，以及通过独立系统对话框明确导入的外部素材。
 - 项目间不共享素材路径和 Conversation 上下文。
 - 凭证不进入 Brief、Agent 消息、SQLite 普通字段或诊断包。
 - 诊断导出前展示包含范围，并默认脱敏路径和用户内容。
