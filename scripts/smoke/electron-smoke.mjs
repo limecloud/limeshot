@@ -219,6 +219,11 @@ try {
   }
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-approval-request.png') });
   await approval.getByRole('button', { name: '允许一次' }).click();
+  if (approvalKind === 'commandApproval') {
+    const fileApproval = page.locator('.interaction-surface[data-kind="fileApproval"][data-status="pending"]');
+    await fileApproval.waitFor({ timeout: 60_000 });
+    await fileApproval.getByRole('button', { name: '允许一次' }).click();
+  }
   const diffItem = page.locator('.agent-item[data-item-type="fileChange"][data-status="completed"]', { hasText: 'gate-b-projection.txt' });
   await diffItem.waitFor({ timeout: 60_000 });
   await page.locator('.agent-turn-panel[data-panel="diff"]', { hasText: 'gate-b-projection.txt' }).waitFor({ timeout: 60_000 });
