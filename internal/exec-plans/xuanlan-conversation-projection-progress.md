@@ -339,6 +339,33 @@ Phase B 已完成：18 类 ItemRenderer 已接入真实对话页并保持 `Turn.
 - [x] 截图中的 `paginated_threads is not supported yet` 已通过隔离上游探针定位为旧 `0.143.0`/非 Local store 路径；固定 `0.145.0` Local store 原生 `thread/start(historyMode="paginated")` 成功。
 - [x] 发布候选重新通过版本、资源、类型、协议、65 项 Vitest、39 项 Rust 测试、release build 与真实 Electron Gate B；Gate B 固定 Codex `0.145.0`，12 次 Responses 请求及全部 `gateEvidence` 为 `true`。
 
+### 2026-07-29：Codex 原生对话自动归组
+
+目标：打开或导入本地 Project 后，同一工作目录的 Codex 根 Thread 自动嵌套到该 Project，其余根 Thread 自动进入“最近”；用户可直接查看 canonical Turn/Item 历史，不使用独立导入对话框，也不得复制 history、恢复外部宿主工具能力或绕过 Renderer semantic API。
+
+窄写集：`src/shared/desktop.ts`、`src/preload/index.ts`、`src/main/ipc.ts`、`src/renderer/src/{App,AppSidebar,ConversationTimeline,i18n,styles}*`、本执行计划、`internal/aiprompts/commands.md`、`internal/roadmap/v1/PRD.md` 和既有 `scripts/smoke/electron-smoke.mjs` Gate B 编排。避让 `rust/crates/**`、Provider/media、资源版本、发布配置及并行 GUI 重构的非导入部分。
+
+退出条件：
+
+- [x] 历史只来自 Codex `thread/list` 的非 ephemeral 根 Thread，完整分页覆盖 CLI、VS Code、Exec 和 App Server。
+- [x] Main 将 Project `workspacePath` 本身及所有子目录的 `cwd` 归入该 Project，并共享短时 Thread 目录缓存；相邻前缀目录不会误归组，其余历史进入“最近”。
+- [x] 自动发现的 Thread 通过既有 canonical history reader 展示完整 Turn/Item；Renderer 不保存导入注册表或 Codex history。
+- [x] 未绑定的 Codex Thread 为只读，Main 拒绝其 `turn/start`，不继承其它 Codex 宿主的动态工具或审批能力。
+- [x] 侧栏不显示独立导入入口，也不打开导入弹窗；Project 导入继续复用现有系统目录选择器。
+- [x] 对话读取期间不在消息流中央插入“正在恢复对话”文案，只保留顶部加载图标及无障碍状态标签。
+- [x] TypeScript 与导入相关 Renderer 测试通过。
+- [x] 真实 Electron Gate B 验证自动 Project 嵌套、最近列表、完整历史、只读状态、无 Renderer 导入注册表和重启恢复。
+
+`scripts/smoke/electron-smoke.mjs` 已超过 1000 行，本轮仍在该单一 Gate B 编排中追加有界自动归组断言，因为只有该进程同时拥有真实 Electron、preload/IPC、固定 Codex child 和已物化 Thread。Gate 新增一次 Responses 请求用于物化外部历史种子；后续若再扩展独立场景，应先拆出可复用的 UI evidence helper。
+
+验证证据：
+
+- `npm run typecheck`：通过。
+- 自动归组、侧栏与时间线相关测试通过；当前工作树全量 Vitest 为 19 个文件、97 项通过。
+- `npm run test:contracts`：协议生成物同步后通过，2 个文件、8 项通过；相关 Rust 4 个 package、24 项通过。
+- Electron Main/Preload/Renderer production build：通过。
+- `npm run verify:gui-smoke`：固定 Codex `0.145.0`、Business protocol v5、13 次 Responses 请求，全部 `gateEvidence` 为 `true`；其中 `automaticImportListing`、`conversationImport`、`importedTurnRejected`、`importedConversationRestoredAfterRestart` 均为 `true`。
+
 ## 分类
 
 - `current`：固定 Codex native client、Electron direct supervisor、`AgentItemProjection`、main semantic projection、Renderer reducer。

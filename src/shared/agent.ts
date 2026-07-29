@@ -63,7 +63,7 @@ export interface AgentUserMessageProjection extends AgentItemBase {
 
 export interface AgentHookPromptProjection extends AgentItemBase {
   type: 'hookPrompt';
-  kind: 'system';
+  kind: 'user';
   fragments: Array<{ text: string; hookRunId: string }>;
 }
 
@@ -192,6 +192,7 @@ export interface AgentReviewBoundaryProjection extends AgentItemBase {
 export interface AgentContextCompactionProjection extends AgentItemBase {
   type: 'contextCompaction';
   kind: 'system';
+  source: 'manual' | 'automatic';
 }
 
 export interface AgentUnknownItemProjection extends AgentItemBase {

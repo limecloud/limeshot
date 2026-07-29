@@ -1,41 +1,55 @@
-## LimeShot v0.3.0
+## LimeShot v0.4.0
 
 发布日期：2026-07-29
 
-### 对话与 Agent
+### 桌面体验
 
-- 将受管 Agent runtime 升级并固定为 OpenAI Codex `0.145.0`，同时校验官方 archive 与 executable SHA-256。
-- 新 Thread 使用 Codex 原生 paginated history；恢复时由 Electron 分页读取 canonical Turn 与 Item，不在 LimeShot 内镜像或重建 Agent history。
-- 完整投影 Codex 的 18 类 ThreadItem、72 类 notification 和 11 类 reverse request。已知类型不再静默丢弃，未知协议漂移以脱敏诊断显式呈现。
-- 时间线严格保持 `Turn.items` 原始顺序，并为 Reasoning、Plan、Shell、Diff、Search、MCP、动态业务工具、图片、Review、Context Compaction 与 Multi-Agent 提供专用渲染。
-- 新增 Command、File、Permission Approval，RequestUserInput 与 MCP Elicitation。Electron Main 持有 pending request 和一次性 action token，Renderer 不接触 raw request id 或敏感参数。
-- 新增多 Agent 子线程只读导航、Turn plan/diff/token usage、Thread status/environment/goal、Hook、Guardian、Realtime 与诊断状态面。
+- 参考 Codex Desktop 的交互语法，完成 Sidebar、Project Home、Conversation Timeline、Composer 与阻塞交互的第一阶段 GUI 对齐。项目仍是 LimeShot 的业务入口，Codex Desktop 不是产品依赖或运行时组成。
+- Project 侧栏增加真实会话树，每个项目默认显示最近五条绑定会话并支持展开；Project row 进入 Project Home，会话子行打开对应 canonical history。
+- Recent 自动纳入未绑定的本地 Codex 根 Thread，并与 Project 会话按 Thread ID 去重；支持按项目或单列表组织，以及优先级、最近更新和手动排序。
+- Project 与 Conversation 菜单补齐置顶、重命名、归档、删除、已读状态、Finder 和复制信息等具备完整 owner 的操作。永久删除对话必须二次确认，移除项目不会删除工作区文件。
+- Home 使用项目上下文、四项任务建议和双层 Composer；Timeline、活动行、弹窗和窄窗布局完成第一轮响应式与可访问性收口。
 
-### 桌面交互
+### 对话与项目
 
-- 首页默认进入可直接输入的新对话，不再要求先创建 Project；Project 可从 Composer 上下文中按需选择或打开本地目录。
-- 侧栏增加 standalone Conversation 历史、最近项目排序/固定和项目菜单；新建对话会清理旧会话投影并保持 Profile 工作区。
-- 对话活动与运行状态移入右侧检查器，主时间线保持消息优先；窄窗口下 Composer、审批表单和菜单保持单列且无水平溢出。
-- 高频 delta、usage 与 realtime 事件按绘制帧合批，同时保持原始事件顺序；长输出、Diff、JSON 与媒体内容使用有界投影。
-- 新增交互焦点、键盘导航、读屏语义和 reduced-motion 处理；用户可见文案覆盖五种 locale。
+- Codex `thread/list` 分页发现本地非 ephemeral 根 Thread；工作目录位于 Project 根目录或子目录的 Thread 自动归入对应 Project，其余进入 Recent。
+- 所有历史继续由 Codex `thread/read` 与 paginated history 提供。LimeShot 不复制 Agent history，也不从 delta 合成终态。
+- 自动发现但未绑定的外部 Thread 以只读方式打开；Electron Main 拒绝对其启动 Turn，避免继承其他宿主的动态工具或审批能力。
+- Business protocol 升级至 v5，增加 `project/rename`、`project/archive`、`conversation/binding/list` 与 `conversation/unbind`，并同步 Rust、JSON Schema、TypeScript client、Electron semantic gateway 和测试合同。
+- 新会话物化后立即进入 Project 会话树，Turn 完成后从 Codex 重新读取标题；重命名、归档和删除通过完整 owner target 更新绑定关系。
 
-### 架构边界
+### Agent 投影
 
-- Codex App Server 继续作为唯一 Agent runtime；Electron 直接持有 Codex native protocol，Rust Business Service 继续作为唯一产品业务后端。
-- standalone Conversation 不携带业务工具；进入 Project 后才向 Codex 暴露经过 Rust ToolHost 校验的动态业务工具。
-- Renderer 只使用 preload semantic API，不接触 raw Codex method、raw JSON-RPC、绝对路径、Provider HTTP、FFmpeg argv 或凭证。
+- Reasoning、Plan、Search、Shell、Diff、MCP、Dynamic Tool、Resource 与 Media 使用紧凑 Activity Row；完成态降噪，失败、拒绝和中断保留明确终态。
+- MCP 显示 server/tool、来源、资源、耗时和最近进度；Dynamic Tool 失败提升为可见终态，Image Generation 使用稳定媒体区域与有界 prompt/result。
+- Hook prompt 合并为 User message；Multi-Agent 展示 create/message/resume/close、子 Agent 状态与只读子线程入口；wait/review/sleep 等边界事件不污染主时间线。
+- Context Compaction 区分 automatic/manual 与 in-progress/completed。未知事件继续进入脱敏诊断 owner，不在主时间线生成误导性卡片。
+- raw reasoning 不进入 DOM；JSON 参数、结果、长文本、stdout 与 diff 使用敏感键遮蔽和有界投影。
 
-### 测试与发布
+### 工程治理与品牌
 
-- TypeScript 类型检查、协议/Artifact 合同、17 个 Vitest 文件共 65 项测试，以及 39 项 Rust 测试全部通过。
-- 真实 Electron Gate B 使用固定 Codex `0.145.0` 完成 12 次确定性 Responses 请求与两次冷启动；Search、Shell、Diff、MCP、审批、用户输入、图片、interrupt、paginated history 恢复和业务工具路由证据全部通过。
-- Gate B 同时验证媒体任务、取消/重试、Artifact lineage、QA、Deliverable、FFmpeg 进程回收和部分输出清理。
-- 正式 macOS arm64 DMG、ZIP 和 `SHA256SUMS.txt` 继续只由 GitHub Actions 构建、复验并发布。
+- 新增仓库级 `AGENTS.md`、`internal/aiprompts/**` 与四个项目 Codex skills，固化命令边界、治理、质量和发布工作流；这些开发 Agent skills 与产品内 runtime skills 保持隔离。
+- 增加 UI parity 治理守卫和真实 Electron Gate B 证据，继续锁定 `Electron Renderer -> preload -> Electron Main -> Codex + Rust Business Service` 唯一产品链。
+- 使用 `assets/icons/limeshot.svg` 作为统一设计源，生成并接入 1024px PNG、macOS ICNS 和 Windows ICO；打包产物与运行时窗口统一使用 LimeShot 图标。
+
+### 平台发布
+
+- 首次提供 Windows x64 Squirrel 发布资产：Setup EXE、NuGet package 与 `RELEASES`。
+- 继续提供 macOS Apple Silicon DMG 与 ZIP。两个平台均固定 OpenAI 官方 Codex `0.145.0`，校验 archive、executable、版本输出和包内 companion binaries。
+- GitHub Actions 在 macOS 与 Windows 原生运行真实 Electron Gate B；两个平台资产全部成功后才统一生成 `SHA256SUMS.txt` 并发布 Release。
 
 ### 当前范围
 
-- 本版本发布 macOS Apple Silicon 构建，使用 ad-hoc 完整签名，尚未完成 Developer ID 签名与 Apple notarization。
+- 本版本完成的是 Codex Desktop GUI parity 第一阶段，不宣称全量视觉或功能复刻；业务检查器、更多条件型 Thread 操作和完整运行态截图对照仍在后续路线图中。
+- macOS 使用 ad-hoc 签名，尚未完成 Developer ID 签名与 Apple notarization。仓库尚未配置 Windows 签名 secrets，因此本版本 Windows Squirrel 资产为未签名构建。
 - 正式包尚未携带可再分发的 FFmpeg/FFprobe runtime；缺少受管媒体资源时服务保持 fail closed。
 - 远端图片、视频、语音 Provider、成本结算和 Codex 账户登录 GUI 尚未交付。
 
-**完整变更**：`v0.2.0` -> `v0.3.0`
+### 发布验证
+
+- `npm run verify:local` 通过版本、runtime/UI 治理、资源来源、类型、协议、41 项 Rust 测试、release build 和真实 Electron Gate B。
+- 完整 Vitest 共 19 个文件、97 项测试通过；Business/Codex client 合同共 8 项通过。
+- Gate B 固定 Codex `0.145.0` 与 Business protocol v5，完成 13 次确定性 provider request；自动归组、canonical history、只读保护、Project binding、Agent 投影、审批、媒体、QA、Deliverable 和冷启动恢复证据全部通过。
+- macOS/Windows 平台构建与正式资产仍以本版本 GitHub Actions 的结果为准；正式 Release 只接受 Actions 构建并复验的资产。
+
+**完整变更**：`v0.3.0` -> `v0.4.0`

@@ -1,51 +1,55 @@
-## LimeShot v0.2.0
+## LimeShot v0.4.0
 
-Release date: 2026-07-28
+Release date: 2026-07-29
 
-Simplified Chinese release notes are the primary version.
+### Desktop experience
 
-### New features
+- Delivers the first GUI-alignment phase for the Sidebar, Project Home, Conversation Timeline, Composer, and blocking interactions using Codex Desktop interaction patterns as a reference. Projects remain LimeShot's business entry point; Codex Desktop is neither a dependency nor part of the runtime.
+- Adds a real conversation tree under each Project. The first five bound conversations are shown by default and can be expanded; Project rows open Project Home while nested rows open canonical conversation history.
+- Automatically lists unbound local Codex root threads in Recent and de-duplicates them against Project conversations by thread ID. Recent can be grouped by Project or shown as a single list and sorted by priority, update time, or manual order.
+- Completes owned Project and Conversation actions including pinning, rename, archive, delete, read state, Finder, and copy operations. Permanent conversation deletion requires confirmation, and removing a Project never deletes workspace files.
+- Refines Project-context Home, task starters, the two-level Composer, Timeline activity rows, dialogs, responsive layouts, and accessibility behavior.
 
-- Completes the business path from an approved ProductionPlan through asset import, media probing, MP4 transcoding, and explicit delivery confirmation.
-- Adds structured FFprobe and FFmpeg execution. Background progress, cancellation, timeout, process reaping, atomic `.part` commits, and failure cleanup are owned by the Rust Business Service.
-- Adds explicit task retry. Failed, canceled, and interrupted TaskRuns retain their history and create a linear successor through `retryOfTaskRunId`.
-- Adds deterministic media QA. A transcode must pass MP4 container, positive duration, non-empty file, and playable media-stream checks before `media-output.v1` and `qa-report.v1` are registered atomically.
-- Adds GUI delivery confirmation. Confirming a QA-passing media output revalidates file integrity and creates the Project's single current Deliverable while retaining prior delivery records.
-- New conversations accept input while the Codex Thread is starting and automatically send the queued first message once ready.
+### Conversations and Projects
 
-### Fixes
+- Discovers local non-ephemeral root threads through paginated Codex `thread/list`. Threads whose working directory is the Project root or a descendant are grouped into that Project; all others appear in Recent.
+- Keeps Codex `thread/read` and paginated history as the only conversation-history source. LimeShot does not copy Agent history or synthesize terminal state from deltas.
+- Opens automatically discovered, unbound external threads as read-only. Electron Main rejects new Turns for them so capabilities and approvals from another Codex host are not inherited.
+- Upgrades the Business protocol to v5 with `project/rename`, `project/archive`, `conversation/binding/list`, and `conversation/unbind`, synchronized across Rust, JSON Schema, the TypeScript client, Electron semantic gateways, and contract tests.
+- Inserts newly materialized conversations into the Project tree immediately and reloads their Codex-owned title after each completed Turn. Rename, archive, and delete operate on complete ownership targets and update bindings.
 
-- Cancellation, timeout, application shutdown, and process errors now use kill plus wait, preventing orphaned FFmpeg processes and `.part` files.
-- Changed source assets, output files, and QA reports now fail closed instead of using invalid or modified Artifacts.
-- A zero FFmpeg exit code is no longer mistaken for successful QA or delivery.
-- Existing SQLite databases receive idempotent retry-lineage, QA, and Deliverable migrations; in-flight local tasks become interrupted after restart.
-- Switching Projects or returning home clears an unsent first-turn request so it cannot be delivered to the wrong conversation.
+### Agent projection
 
-### Improvements and refactoring
+- Uses compact Activity Rows for Reasoning, Plan, Search, Shell, Diff, MCP, Dynamic Tool, Resource, and Media items. Completed activity is quieter while failed, declined, and interrupted terminal states remain explicit.
+- Shows MCP server/tool identity, source, resources, duration, and recent progress. Dynamic Tool failures become visible terminal states, and Image Generation uses stable media geometry with bounded prompt and result content.
+- Projects Hook prompts as user messages and Multi-Agent create/message/resume/close activity with Agent status and read-only child-thread navigation. Boundary-only wait/review/sleep events no longer pollute the primary timeline.
+- Distinguishes automatic/manual and in-progress/completed Context Compaction. Unknown protocol drift remains in the redacted diagnostic owner instead of producing misleading timeline cards.
+- Keeps raw reasoning out of the DOM and applies recursive secret redaction plus bounded rendering to JSON, long text, stdout, and diffs.
 
-- Upgrades the Rust business protocol to v4 with SourceAsset, TaskRun, MediaJob, Artifact QA, Deliverable projections, and `deliverable/confirm`.
-- Keeps media responsibilities within the existing `business-core`, `projects`, `media`, and `artifacts` owners without adding another Agent runtime or workflow DAG.
-- The Renderer continues to use preload semantic APIs only and never receives file paths, processes, codecs, FFmpeg argv, or raw JSON-RPC.
-- Adds media execution, retry, QA, and delivery text in all five supported interface languages.
+### Engineering governance and brand
 
-### Testing and quality
+- Adds repository-level `AGENTS.md`, `internal/aiprompts/**`, and four project Codex skills for command boundaries, governance, quality, and releases. Development Agent skills remain isolated from product runtime skills.
+- Adds UI parity governance and real Electron Gate B evidence while preserving the single `Electron Renderer -> preload -> Electron Main -> Codex + Rust Business Service` product chain.
+- Uses `assets/icons/limeshot.svg` as the single design source for the 1024px PNG, macOS ICNS, and Windows ICO used by packaged apps and runtime windows.
 
-- Official DMG, ZIP, and SHA-256 assets are now built, verified, and published by GitHub Actions on a pinned Node 22 / macOS arm64 runner; local packages are no longer accepted as Release assets.
-- `npm run verify:local` passes version, governance, resource, type, protocol, Artifact schema, full Rust, release build, and real Electron Gate B checks.
-- React regression coverage includes 9 test files and 23 tests; the Projects repository includes 19 tests.
-- The real Gate B covers Codex dynamic tools, GUI plan approval, asset import, media probe, transcode, cancellation, retry, passing QA, delivery confirmation, and full cold-start recovery.
-- Delivery negative tests cover non-media Artifacts, missing passing QA, changed output files, and changed QA reports.
+### Platform release
 
-### Documentation
-
-- Updates the PRD, business specification, protocol v4, architecture, business flow, local media sequence, quality gates, and execution plan.
-- Defines Task success, passing QA, Artifact registration, and Deliverable confirmation as four independent facts; only an explicit GUI user action can confirm delivery.
+- Adds the first Windows x64 Squirrel release: Setup EXE, NuGet package, and `RELEASES`.
+- Continues macOS Apple Silicon DMG and ZIP releases. Both platforms pin official OpenAI Codex `0.145.0` and verify the archive, executable, version output, and packaged companion binaries.
+- Runs the real Electron Gate B natively on macOS and Windows in GitHub Actions. The Release is published only after both platform asset sets succeed and a unified `SHA256SUMS.txt` is generated and verified.
 
 ### Current scope
 
-- This release provides a macOS Apple Silicon build.
-- The app has a complete ad-hoc signature but is not yet Developer ID signed or Apple-notarized; first launch requires confirmation in macOS Privacy & Security.
-- The media path passes a real Electron Gate B with pinned FFprobe and FFmpeg fixtures. Redistributable macOS and Windows LGPL FFmpeg builds are not yet present in the resource manifest, so media services remain fail-closed in the packaged application.
-- Remote media Providers, cost settlement, Codex account login UI, and upstream native tool approvals are not included.
+- This release is the first Codex Desktop GUI parity phase, not a claim of complete visual or functional parity. Business inspectors, additional conditional thread actions, and full runtime screenshot comparison remain on the roadmap.
+- macOS uses ad-hoc signing and is not Developer ID signed or Apple-notarized. Windows signing secrets are not configured, so the v0.4.0 Squirrel assets are unsigned.
+- Redistributable FFmpeg/FFprobe runtimes are not yet packaged. Media services fail closed when managed media resources are unavailable.
+- Remote image, video, and voice Providers, cost settlement, and the Codex account login GUI are not yet delivered.
 
-**Full changes**: `v0.1.0` -> `v0.2.0`
+### Release verification
+
+- `npm run verify:local` passes version, runtime/UI governance, resource provenance, type, protocol, 41 Rust tests, the release build, and the real Electron Gate B.
+- The full Vitest suite passes 97 tests across 19 files; the Business and Codex client contract suite passes 8 tests.
+- Gate B pins Codex `0.145.0` and Business protocol v5, completes 13 deterministic provider requests, and passes all evidence for automatic grouping, canonical history, read-only protection, Project binding, Agent projection, approvals, media, QA, Deliverables, and cold-start recovery.
+- macOS and Windows platform builds and official assets remain subject to this version's GitHub Actions run. Official Release assets must be built and verified by Actions.
+
+**Full changes**: `v0.3.0` -> `v0.4.0`

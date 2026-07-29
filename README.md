@@ -4,7 +4,7 @@
 
 LimeShot 是面向内容生产者的独立桌面 AI 制作工作台。用户可以从自然语言需求或本地项目开始，由 Agent 收敛 Brief、生成可审阅的 ProductionPlan；用户批准后，Rust 业务服务负责受控任务、媒体处理、Artifact QA 和最终交付确认。
 
-当前版本：`v0.3.0`。
+当前版本：`v0.4.0`。
 
 ## 产品范围
 
@@ -18,13 +18,16 @@ LimeShot 固定提供五类业务入口，但只使用一套 Agent runtime 和�
 | `talking_video` | 口播视频 | 脚本、出镜人、声音、封面与混剪 |
 | `commerce_video` | 电商视频 | 商品事实、卖点、商品资产与平台交付 |
 
-`v0.3.0` 已打通以下 current 主链：
+`v0.4.0` 已打通以下 current 主链：
 
-- Codex Conversation 的创建、18 类 Item 原序渲染、72 类 notification 语义投影、中断与 paginated history 恢复。
-- Command/File/Permission Approval、RequestUserInput、MCP Elicitation 和多 Agent 子线程只读导航。
-- Project、Brief、Conversation binding、ProductionPlan 和不可变 ApprovalReceipt。
+- Codex Conversation 的创建、18 类 Item 原序渲染、72 类 notification 语义投影、中断、paginated history 恢复，以及本地 Codex 根 Thread 自动发现。
+- Project 会话树、Recent 去重与整理、Project Home、会话自动归组，以及未绑定外部 Thread 的 canonical history 只读查看。
+- Command/File/Permission Approval、RequestUserInput、MCP Elicitation、Activity Row、MCP/动态工具/媒体投影和多 Agent 子线程只读导航。
+- Project、Brief、Conversation binding、ProductionPlan 和不可变 ApprovalReceipt；Business protocol v5 增加 Project 重命名/软归档与 Conversation binding 列表/解绑。
 - 素材导入、FFprobe 探测、FFmpeg MP4 转码、进度、取消、超时与重试。
 - `media-output.v1`、`qa-report.v1`、Artifact lineage 与 Project 唯一 current Deliverable。
+- 参考 Codex Desktop 交互语法完成 Sidebar、Home、Timeline、Composer 与阻塞交互的第一阶段 GUI 对齐；这不表示已完成全部视觉和功能 parity。
+- 使用统一 SVG 源生成并接入 macOS、Windows 与运行时应用图标。
 - `zh-CN`、`zh-TW`、`en-US`、`ja-JP`、`ko-KR` 五种界面语言。
 
 远端图片、视频和语音 Provider 尚未接入生产配置。正式包也尚未携带可再分发的 FFmpeg/FFprobe runtime；缺少受管资源时相关服务会明确阻断，不会回退到系统 PATH 或 mock。
@@ -86,14 +89,14 @@ Turn 完成、Task 成功、passing QA、Artifact 登记和 Deliverable 确认�
 
 ## 开发环境
 
-当前主要开发和发布目标为 macOS Apple Silicon。
+当前正式发布目标为 macOS Apple Silicon 与 Windows x64。
 
 依赖：
 
 - Node.js `22`
 - npm（使用仓库内 `package-lock.json`）
 - Rust stable toolchain
-- OpenAI 官方 Codex `0.145.0` arm64 macOS binary
+- OpenAI 官方 Codex `0.145.0`（macOS arm64 或 Windows x64 binary）
 
 安装依赖：
 
@@ -101,7 +104,7 @@ Turn 完成、Task 成功、passing QA、Artifact 登记和 Deliverable 确认�
 npm ci
 ```
 
-开发入口只接受 `resources/codex/manifest.v1.json` 声明且 hash、版本都匹配的官方 Codex。可以把 binary 放入 manifest 对应的默认目录，或显式提供绝对路径：
+开发入口只接受 `resources/codex/manifest.v1.json` 声明且 hash、版本都匹配的官方 Codex。可以把 binary 放入 manifest 对应的默认目录，或显式提供绝对路径；Windows 使用对应的 `codex.exe`：
 
 ```bash
 export LIMESHOT_CODEX_BIN="/absolute/path/to/codex-aarch64-apple-darwin"
@@ -135,10 +138,13 @@ npm run verify:local
 
 1. 校验 tag 与 `package.json` 版本一致，并创建或复用 draft Release。
 2. 在 Node 22 / Rust stable 环境运行版本、类型、协议、前端和 Rust 门禁。
-3. 在 `macos-15` arm64 runner 下载 manifest 固定的官方 Codex，并校验 archive SHA-256、executable SHA-256 和版本输出。
-4. 使用 Electron Forge 构建 App、DMG 与 ZIP，验证 App 版本、内嵌 binary、codesign、DMG CRC 和 ZIP 完整性。
-5. 生成并复验 `SHA256SUMS.txt`，通过 Actions Artifact 将产物交给独立 publish job。
-6. 覆盖同版本 GitHub Release 资产，并在全部步骤成功后发布 Release。
+3. 在 `macos-15` arm64 与 `windows-2022` x64 runner 下载 manifest 固定的官方 Codex，并校验 archive SHA-256、executable SHA-256 和版本输出。
+4. 在两个平台原生构建 Rust Business Service，运行真实 Electron Gate B，并验证包内 Codex、Business Service 与应用版本。
+5. 使用 Electron Forge 构建 macOS DMG/ZIP 和 Windows Squirrel Setup EXE/NuGet/`RELEASES`。
+6. 汇合两个平台的五个资产，生成并复验统一的 `SHA256SUMS.txt`；任一平台失败都不会发布半套正式资产。
+7. 覆盖同版本 draft Release 资产，并在全部步骤成功后发布 Release。
+
+macOS 产物当前使用 ad-hoc 签名，尚未完成 Developer ID 签名与 notarization。仓库尚未配置 Windows 代码签名 secrets，因此 `v0.4.0` Windows Squirrel 产物为未签名构建；workflow 已保留同时提供证书与密码时的受控签名入口。
 
 开发机生成的包只用于本地验收，不得上传为正式 Release 资产。
 
@@ -170,7 +176,7 @@ npm run verify:local
 - [质量工作流](internal/aiprompts/quality-workflow.md)
 - [执行计划](internal/exec-plans/v1-implementation.md)
 - [对话全量投影方案](internal/roadmap/xuanlan/README.md)
-- [v0.3.0 Release Notes](RELEASE_NOTES.md)
+- [v0.4.0 Release Notes](RELEASE_NOTES.md)
 
 ## License
 

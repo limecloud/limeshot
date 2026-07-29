@@ -1,0 +1,4 @@
+interface:
+  display_name: "LimeShot 治理"
+  short_description: "收口 LimeShot 事实源、清理旧路径并补齐回流守卫"
+  default_prompt: "Use $limeshot-governance to classify current paths, converge them on one owner, and prevent retired runtime paths from returning."

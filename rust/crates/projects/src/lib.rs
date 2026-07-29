@@ -10,9 +10,11 @@ use std::{
 
 use business_protocol::{
     BriefCompleteness, BriefInput, BriefRecord, BriefUpdateParams, ConversationBindParams,
-    ConversationBindResult, ConversationBinding, ConversationBindingReadResult,
-    ProjectContextReadResult, ProjectCreateParams, ProjectCreateResult, ProjectListResult,
-    ProjectReadResult, ProjectState, ProjectSummary,
+    ConversationBindResult, ConversationBinding, ConversationBindingListResult,
+    ConversationBindingReadResult, ConversationUnbindParams, ConversationUnbindResult,
+    ProjectArchiveResult, ProjectContextReadResult, ProjectCreateParams, ProjectCreateResult,
+    ProjectListResult, ProjectReadResult, ProjectRenameParams, ProjectRenameResult, ProjectState,
+    ProjectSummary,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -243,6 +245,52 @@ impl ProjectStore {
         Ok(ProjectReadResult { project, brief })
     }
 
+    pub fn rename_project(
+        &self,
+        params: ProjectRenameParams,
+    ) -> Result<ProjectRenameResult, ProjectStoreError> {
+        validate_project_name(&params.name)?;
+        let now = epoch_ms();
+        let connection = self.connection()?;
+        let updated = connection
+            .execute(
+                "UPDATE projects SET name = ?1, updated_at_epoch_ms = ?2 WHERE project_id = ?3 AND state != 'archived'",
+                params![params.name.trim(), now, &params.project_id],
+            )
+            .map_err(internal)?;
+        if updated != 1 {
+            return Err(ProjectStoreError::new(
+                "PROJECT_NOT_FOUND",
+                "项目不存在或已归档",
+            ));
+        }
+        drop(connection);
+        Ok(ProjectRenameResult {
+            project: self.read_project(&params.project_id)?.project,
+        })
+    }
+
+    pub fn archive_project(
+        &self,
+        project_id: &str,
+    ) -> Result<ProjectArchiveResult, ProjectStoreError> {
+        let now = epoch_ms();
+        let connection = self.connection()?;
+        let updated = connection
+            .execute(
+                "UPDATE projects SET state = 'archived', updated_at_epoch_ms = ?1 WHERE project_id = ?2",
+                params![now, project_id],
+            )
+            .map_err(internal)?;
+        if updated != 1 {
+            return Err(ProjectStoreError::new("PROJECT_NOT_FOUND", "项目不存在"));
+        }
+        drop(connection);
+        Ok(ProjectArchiveResult {
+            project: self.read_project(project_id)?.project,
+        })
+    }
+
     pub fn read_project_context(
         &self,
         project_id: &str,
@@ -399,6 +447,71 @@ impl ProjectStore {
                 )
             })?;
         Ok(ConversationBindingReadResult { binding })
+    }
+
+    pub fn list_conversation_bindings(
+        &self,
+        project_id: &str,
+    ) -> Result<ConversationBindingListResult, ProjectStoreError> {
+        self.read_project(project_id)?;
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT project_id, conversation_id, codex_thread_id, updated_at_epoch_ms
+                 FROM conversation_bindings WHERE project_id = ?1
+                 ORDER BY updated_at_epoch_ms DESC, conversation_id ASC",
+            )
+            .map_err(internal)?;
+        let rows = statement
+            .query_map(params![project_id], |row| {
+                Ok(ConversationBinding {
+                    project_id: row.get(0)?,
+                    conversation_id: row.get(1)?,
+                    codex_thread_id: row.get(2)?,
+                    updated_at_epoch_ms: row.get(3)?,
+                })
+            })
+            .map_err(internal)?;
+        let bindings = rows.collect::<Result<Vec<_>, _>>().map_err(internal)?;
+        Ok(ConversationBindingListResult { bindings })
+    }
+
+    pub fn unbind_conversation(
+        &self,
+        params: ConversationUnbindParams,
+    ) -> Result<ConversationUnbindResult, ProjectStoreError> {
+        let connection = self.connection()?;
+        let binding =
+            read_binding_optional(&connection, &params.project_id, &params.conversation_id)?
+                .ok_or_else(|| {
+                    ProjectStoreError::new(
+                        "CONVERSATION_BINDING_NOT_FOUND",
+                        "会话尚未绑定 Codex Thread",
+                    )
+                })?;
+        if binding.codex_thread_id != params.expected_codex_thread_id {
+            return Err(ProjectStoreError::new(
+                "CONVERSATION_BINDING_CONFLICT",
+                "会话绑定已被其他请求更新",
+            ));
+        }
+        let removed = connection
+            .execute(
+                "DELETE FROM conversation_bindings WHERE project_id = ?1 AND conversation_id = ?2 AND codex_thread_id = ?3",
+                params![
+                    &params.project_id,
+                    &params.conversation_id,
+                    &params.expected_codex_thread_id
+                ],
+            )
+            .map_err(binding_write_error)?;
+        if removed != 1 {
+            return Err(ProjectStoreError::new(
+                "CONVERSATION_BINDING_CONFLICT",
+                "会话绑定已被其他请求更新",
+            ));
+        }
+        Ok(ConversationUnbindResult { binding })
     }
 
     pub fn create_plan(
@@ -768,6 +881,82 @@ mod tests {
                 .version,
             1
         );
+    }
+
+    #[test]
+    fn renames_and_archives_projects_without_touching_workspace_files() {
+        let store = ProjectStore::in_memory().expect("store");
+        let workspace = test_workspace("project-actions");
+        let project = store
+            .create_project(params(workspace.display().to_string()))
+            .expect("project")
+            .project;
+
+        let renamed = store
+            .rename_project(ProjectRenameParams {
+                project_id: project.project_id.clone(),
+                name: "新的项目名".to_owned(),
+            })
+            .expect("rename project");
+        assert_eq!(renamed.project.name, "新的项目名");
+
+        let archived = store
+            .archive_project(&project.project_id)
+            .expect("archive project");
+        assert_eq!(archived.project.state, ProjectState::Archived);
+        assert!(workspace.exists());
+
+        fs::remove_dir_all(workspace).expect("remove workspace");
+    }
+
+    #[test]
+    fn lists_and_compare_and_swap_removes_conversation_bindings() {
+        let store = ProjectStore::in_memory().expect("store");
+        let workspace = test_workspace("binding-actions");
+        let project = store
+            .create_project(params(workspace.display().to_string()))
+            .expect("project")
+            .project;
+        store
+            .bind_conversation(ConversationBindParams {
+                project_id: project.project_id.clone(),
+                conversation_id: "main".to_owned(),
+                codex_thread_id: "thread-1".to_owned(),
+                expected_codex_thread_id: None,
+            })
+            .expect("binding");
+
+        let listed = store
+            .list_conversation_bindings(&project.project_id)
+            .expect("list bindings");
+        assert_eq!(listed.bindings.len(), 1);
+
+        let conflict = store
+            .unbind_conversation(ConversationUnbindParams {
+                project_id: project.project_id.clone(),
+                conversation_id: "main".to_owned(),
+                expected_codex_thread_id: "thread-other".to_owned(),
+            })
+            .expect_err("stale thread id must fail");
+        assert_eq!(conflict.code(), "CONVERSATION_BINDING_CONFLICT");
+
+        let removed = store
+            .unbind_conversation(ConversationUnbindParams {
+                project_id: project.project_id.clone(),
+                conversation_id: "main".to_owned(),
+                expected_codex_thread_id: "thread-1".to_owned(),
+            })
+            .expect("unbind");
+        assert_eq!(removed.binding.codex_thread_id, "thread-1");
+        assert!(
+            store
+                .list_conversation_bindings(&project.project_id)
+                .expect("list empty bindings")
+                .bindings
+                .is_empty()
+        );
+
+        fs::remove_dir_all(workspace).expect("remove workspace");
     }
 
     #[test]

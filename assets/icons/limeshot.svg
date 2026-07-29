@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">LimeShot application icon</title>
+  <desc id="description">A lime aperture and play mark framed by camera focus corners.</desc>
+  <defs>
+    <linearGradient id="shell" x1="180" y1="128" x2="844" y2="896" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#252A30"/>
+      <stop offset="1" stop-color="#111316"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="352" y1="320" x2="682" y2="724" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D5FF67"/>
+      <stop offset="1" stop-color="#91D936"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="218" fill="url(#shell)"/>
+  <rect x="72" y="72" width="880" height="880" rx="210" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="8"/>
+
+  <g fill="#F7F9F5">
+    <path d="M252 276c0-13.255 10.745-24 24-24h142v48H300v118h-48V276Z"/>
+    <path d="M772 748c0 13.255-10.745 24-24 24H606v-48h118V606h48v142Z"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <circle cx="512" cy="512" r="224" fill="url(#lime)"/>
+    <circle cx="512" cy="512" r="132" fill="#171A1E"/>
+
+    <g fill="#171A1E">
+      <path d="M500 288h24l18 104h-60l18-104Z"/>
+      <path d="m327.918 390 12-20.785 99.067 36.412-30 51.962L327.918 390Z"/>
+      <path d="m696.082 390-12-20.785-99.067 36.412 30 51.962L696.082 390Z"/>
+      <path d="m327.918 634 12 20.785 99.067-36.412-30-51.962L327.918 634Z"/>
+      <path d="m696.082 634-12 20.785-99.067-36.412 30-51.962L696.082 634Z"/>
+    </g>
+
+    <path d="M482 437.75c0-14.238 15.783-22.837 27.762-15.127l122.407 78.75c11.014 7.087 11.014 23.167 0 30.254l-122.407 78.75C497.783 618.087 482 609.488 482 595.25v-157.5Z" fill="#F7F9F5"/>
+  </g>
+
+  <circle cx="750" cy="274" r="43" fill="#48A5FF" stroke="#171A1E" stroke-width="16"/>
+</svg>

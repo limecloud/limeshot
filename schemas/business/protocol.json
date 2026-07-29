@@ -14,10 +14,14 @@
     "project/create",
     "project/list",
     "project/read",
+    "project/rename",
+    "project/archive",
     "project/context/read",
     "brief/update",
     "conversation/bind",
     "conversation/binding/read",
+    "conversation/binding/list",
+    "conversation/unbind",
     "plan/list",
     "plan/read",
     "approval/decide",
@@ -29,7 +33,7 @@
     "deliverable/confirm",
     "resource/list"
   ],
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "requiredEnvelope": [
     "jsonrpc",
     "id",

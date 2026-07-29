@@ -1,0 +1,4 @@
+interface:
+  display_name: "LimeShot 工程质量"
+  short_description: "按改动风险选择最小门禁、Gate B 与平台验证证据"
+  default_prompt: "Use $limeshot-quality-workflow to classify this change and run the smallest sufficient LimeShot validation matrix."

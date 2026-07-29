@@ -1,0 +1,4 @@
+interface:
+  display_name: "LimeShot 命令边界"
+  short_description: "同步 Codex、Rust、Electron 与 Renderer 命令合同"
+  default_prompt: "Use $limeshot-command-boundary to update this command across the correct protocol, host, semantic API, and contract-test boundaries."

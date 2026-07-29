@@ -48,7 +48,9 @@ LimeShot 当前生产资源固定为 Codex `0.145.0`。固定版本 experimental
 | --- | --- |
 | [ITEM-PROJECTIONS.md](./ITEM-PROJECTIONS.md) | 18 类 `ThreadItem`、用户输入模态、状态和具体渲染交互 |
 | [EVENT-PROJECTIONS.md](./EVENT-PROJECTIONS.md) | 72 类原生通知、11 类 reverse request 及其全部投影出口 |
+| [CODEX-DESKTOP-UI-PARITY.md](./CODEX-DESKTOP-UI-PARITY.md) | Codex Desktop 全量 UI 对齐边界、组件映射、治理分类与视觉验收 |
 | [xuanlan-conversation-projection-progress.md](../../exec-plans/xuanlan-conversation-projection-progress.md) | 当前阶段、逐轮进度、验证证据、阻塞、完成度与下一刀 |
+| [xuanlan-codex-desktop-ui-progress.md](../../exec-plans/xuanlan-codex-desktop-ui-progress.md) | Codex Desktop UI 对齐的唯一动态进度 tracker |
 | 本文 | 页面信息架构、投影模型、生命周期、恢复、实施与验收 |
 
 ## 4. 编制时实现基线

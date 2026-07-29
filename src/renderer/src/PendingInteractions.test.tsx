@@ -65,7 +65,7 @@ describe('PendingInteractions', () => {
     });
   });
 
-  it('switches tabs by pointer and keyboard while presenting terminal states as non-actionable', async () => {
+  it('switches tabs by pointer and keyboard and removes settled requests from the blocking surface', async () => {
     const current = commandApproval({ status: 'submitting' });
     const other = permissionApproval({ interactionId: 'permission-other', threadId: 'thread-2', createdAt: 2 });
     const view = render(surface([current, other]));
@@ -80,9 +80,9 @@ describe('PendingInteractions', () => {
     expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('interaction-tab-other');
     expect(screen.getByText('environment-1')).toBeTruthy();
 
-    for (const [status, label] of [['resolved', '已处理'], ['expired', '已过期'], ['disconnected', '连接已断开']] as const) {
+    for (const status of ['resolved', 'expired', 'disconnected'] as const) {
       view.rerender(surface([{ ...other, status } as AgentPendingInteractionProjection]));
-      expect(screen.getByText(label)).toBeTruthy();
+      expect(screen.queryByRole('region', { name: '需要确认' })).toBeNull();
       expect(screen.queryByRole('button', { name: '允许一次' })).toBeNull();
     }
   });
@@ -104,16 +104,24 @@ describe('PendingInteractions', () => {
 
     expect(screen.getByText(/自动处理倒计时/)).toBeTruthy();
     expect(screen.getByRole('timer').getAttribute('aria-live')).toBe('off');
-    const channel = screen.getByText('渠道').closest('fieldset')!;
+    expect(screen.getByText('1/3')).toBeTruthy();
+    const channel = screen.getByText('发布到哪里？').closest('fieldset')!;
     fireEvent.click(within(channel).getByText('网站'));
     expect((within(channel).getByRole('radio', { name: /网站/ }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(within(channel).getByText('其他'));
     fireEvent.change(within(channel).getByLabelText('补充说明'), { target: { value: '线下屏幕' } });
 
-    const formats = screen.getByText('格式').closest('fieldset')!;
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    expect(screen.getByText('2/3')).toBeTruthy();
+    const formats = screen.getByText('选择格式').closest('fieldset')!;
     fireEvent.click(within(formats).getByText('MP4'));
     fireEvent.click(within(formats).getByText('MOV'));
-    const secret = screen.getByText('密钥').closest('fieldset')!;
+    fireEvent.click(screen.getByRole('button', { name: '上一题' }));
+    expect((within(screen.getByText('发布到哪里？').closest('fieldset')!).getByLabelText('补充说明') as HTMLInputElement).value).toBe('线下屏幕');
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    fireEvent.click(screen.getByRole('button', { name: '下一题' }));
+    expect(screen.getByText('3/3')).toBeTruthy();
+    const secret = screen.getByText('输入密钥').closest('fieldset')!;
     fireEvent.change(within(secret).getByLabelText('回答'), { target: { value: 'sk-test-secret' } });
     expect(container.innerHTML).not.toContain('sk-test-secret');
 

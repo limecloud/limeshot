@@ -13,15 +13,17 @@ use business_protocol::{
     ApprovalDecideParams, ApprovalDecideResult, ArtifactContractListResult, BriefRecord,
     BriefUpdateParams, BriefUpdateResult, BusinessProfile, BusinessProfileListResult,
     BusinessStatusResult, CapabilityListResult, ConversationBindParams, ConversationBindResult,
-    ConversationBindingReadParams, ConversationBindingReadResult, DeliverableConfirmParams,
-    DeliverableConfirmResult, ManagedResourceListResult, PROTOCOL_VERSION, PlanListParams,
-    PlanListResult, PlanReadParams, PlanReadResult, ProfileExecutionState,
-    ProjectContextReadParams, ProjectContextReadResult, ProjectCreateParams, ProjectCreateResult,
-    ProjectExecutionReadParams, ProjectExecutionReadResult, ProjectListParams, ProjectListResult,
-    ProjectReadParams, ProjectReadResult, ServiceListResult, SkillListResult,
-    SourceAssetImportParams, SourceAssetImportResult, TaskCancelParams, TaskCancelResult,
-    TaskRetryParams, TaskStartParams, TaskStartResult, ToolCallParams, ToolCallResult,
-    ToolCatalogListResult,
+    ConversationBindingListParams, ConversationBindingListResult, ConversationBindingReadParams,
+    ConversationBindingReadResult, ConversationUnbindParams, ConversationUnbindResult,
+    DeliverableConfirmParams, DeliverableConfirmResult, ManagedResourceListResult,
+    PROTOCOL_VERSION, PlanListParams, PlanListResult, PlanReadParams, PlanReadResult,
+    ProfileExecutionState, ProjectArchiveParams, ProjectArchiveResult, ProjectContextReadParams,
+    ProjectContextReadResult, ProjectCreateParams, ProjectCreateResult, ProjectExecutionReadParams,
+    ProjectExecutionReadResult, ProjectListParams, ProjectListResult, ProjectReadParams,
+    ProjectReadResult, ProjectRenameParams, ProjectRenameResult, ServiceListResult,
+    SkillListResult, SourceAssetImportParams, SourceAssetImportResult, TaskCancelParams,
+    TaskCancelResult, TaskRetryParams, TaskStartParams, TaskStartResult, ToolCallParams,
+    ToolCallResult, ToolCatalogListResult,
 };
 use media::{MediaError, MediaService};
 use projects::{PreparedMediaTask, ProjectStore, ProjectStoreError};
@@ -185,6 +187,20 @@ impl BusinessCore {
         Ok(self.projects.read_project(&params.project_id)?)
     }
 
+    pub fn rename_project(
+        &self,
+        params: ProjectRenameParams,
+    ) -> Result<ProjectRenameResult, BusinessError> {
+        Ok(self.projects.rename_project(params)?)
+    }
+
+    pub fn archive_project(
+        &self,
+        params: ProjectArchiveParams,
+    ) -> Result<ProjectArchiveResult, BusinessError> {
+        Ok(self.projects.archive_project(&params.project_id)?)
+    }
+
     pub fn read_project_context(
         &self,
         params: ProjectContextReadParams,
@@ -214,6 +230,22 @@ impl BusinessCore {
         Ok(self
             .projects
             .read_conversation_binding(&params.project_id, &params.conversation_id)?)
+    }
+
+    pub fn list_conversation_bindings(
+        &self,
+        params: ConversationBindingListParams,
+    ) -> Result<ConversationBindingListResult, BusinessError> {
+        Ok(self
+            .projects
+            .list_conversation_bindings(&params.project_id)?)
+    }
+
+    pub fn unbind_conversation(
+        &self,
+        params: ConversationUnbindParams,
+    ) -> Result<ConversationUnbindResult, BusinessError> {
+        Ok(self.projects.unbind_conversation(params)?)
     }
 
     pub fn list_plans(&self, params: PlanListParams) -> Result<PlanListResult, BusinessError> {

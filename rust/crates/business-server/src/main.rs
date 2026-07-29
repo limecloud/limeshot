@@ -4,16 +4,19 @@ use business_core::{BusinessCore, BusinessError, SERVER_NAME, SERVER_VERSION};
 use business_protocol::{
     APPROVAL_DECIDE, ARTIFACT_CONTRACT_LIST, ApprovalDecideParams, BRIEF_UPDATE,
     BUSINESS_PROFILE_LIST, BUSINESS_SHUTDOWN, BUSINESS_STATUS_READ, BriefUpdateParams,
-    CONVERSATION_BIND, CONVERSATION_BINDING_READ, ConversationBindParams,
-    ConversationBindingReadParams, DELIVERABLE_CONFIRM, DeliverableConfirmParams, INITIALIZE,
+    CONVERSATION_BIND, CONVERSATION_BINDING_LIST, CONVERSATION_BINDING_READ, CONVERSATION_UNBIND,
+    ConversationBindParams, ConversationBindingListParams, ConversationBindingReadParams,
+    ConversationUnbindParams, DELIVERABLE_CONFIRM, DeliverableConfirmParams, INITIALIZE,
     INITIALIZED, IncomingMessage, InitializeParams, InitializeResult, JsonRpcRequest,
-    JsonRpcResponse, MAX_MESSAGE_BYTES, PLAN_LIST, PLAN_READ, PROJECT_CONTEXT_READ, PROJECT_CREATE,
-    PROJECT_EXECUTION_READ, PROJECT_LIST, PROJECT_READ, PROTOCOL_VERSION, PROVIDER_CAPABILITY_LIST,
-    PlanListParams, PlanReadParams, ProjectContextReadParams, ProjectCreateParams,
-    ProjectExecutionReadParams, ProjectListParams, ProjectReadParams, RESOURCE_LIST, SERVICE_LIST,
-    SKILL_LIST, SOURCE_ASSET_IMPORT, ShutdownResult, SourceAssetImportParams, TASK_CANCEL,
-    TASK_RETRY, TASK_START, TOOL_CALL, TOOL_CATALOG_LIST, TaskCancelParams, TaskRetryParams,
-    TaskStartParams, ToolCallParams, error_response, parse_incoming, result_response,
+    JsonRpcResponse, MAX_MESSAGE_BYTES, PLAN_LIST, PLAN_READ, PROJECT_ARCHIVE,
+    PROJECT_CONTEXT_READ, PROJECT_CREATE, PROJECT_EXECUTION_READ, PROJECT_LIST, PROJECT_READ,
+    PROJECT_RENAME, PROTOCOL_VERSION, PROVIDER_CAPABILITY_LIST, PlanListParams, PlanReadParams,
+    ProjectArchiveParams, ProjectContextReadParams, ProjectCreateParams,
+    ProjectExecutionReadParams, ProjectListParams, ProjectReadParams, ProjectRenameParams,
+    RESOURCE_LIST, SERVICE_LIST, SKILL_LIST, SOURCE_ASSET_IMPORT, ShutdownResult,
+    SourceAssetImportParams, TASK_CANCEL, TASK_RETRY, TASK_START, TOOL_CALL, TOOL_CATALOG_LIST,
+    TaskCancelParams, TaskRetryParams, TaskStartParams, ToolCallParams, error_response,
+    parse_incoming, result_response,
 };
 use clap::Parser;
 use serde::{Serialize, de::DeserializeOwned};
@@ -152,6 +155,12 @@ async fn route_request(
         PROJECT_READ => domain(request, |params: ProjectReadParams| {
             core.read_project(params)
         }),
+        PROJECT_RENAME => domain(request, |params: ProjectRenameParams| {
+            core.rename_project(params)
+        }),
+        PROJECT_ARCHIVE => domain(request, |params: ProjectArchiveParams| {
+            core.archive_project(params)
+        }),
         PROJECT_CONTEXT_READ => domain(request, |params: ProjectContextReadParams| {
             core.read_project_context(params)
         }),
@@ -163,6 +172,12 @@ async fn route_request(
         }),
         CONVERSATION_BINDING_READ => domain(request, |params: ConversationBindingReadParams| {
             core.read_conversation_binding(params)
+        }),
+        CONVERSATION_BINDING_LIST => domain(request, |params: ConversationBindingListParams| {
+            core.list_conversation_bindings(params)
+        }),
+        CONVERSATION_UNBIND => domain(request, |params: ConversationUnbindParams| {
+            core.unbind_conversation(params)
         }),
         PLAN_LIST => domain(request, |params: PlanListParams| core.list_plans(params)),
         PLAN_READ => domain(request, |params: PlanReadParams| core.read_plan(params)),

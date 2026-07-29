@@ -56,10 +56,18 @@ export function projectNotification(notification: CodexNotification): AgentEvent
         ? { type: 'turn.completed', threadId, turn: projectTurn(params.turn) }
         : invalidNotice(notification.method, params);
     case 'item/started':
-    case 'item/completed':
-      return threadId && turnId && object(params.item)
-        ? { type: 'item.updated', threadId, turnId, item: projectItem(params.item) }
-        : invalidNotice(notification.method, params);
+    case 'item/completed': {
+      if (!threadId || !turnId || !object(params.item)) return invalidNotice(notification.method, params);
+      const item = projectItem(params.item);
+      return {
+        type: 'item.updated',
+        threadId,
+        turnId,
+        item: item.type === 'contextCompaction'
+          ? { ...item, status: notification.method === 'item/started' ? 'inProgress' : 'completed' }
+          : item,
+      };
+    }
     case 'item/agentMessage/delta':
       return deltaEvent(params, 'agentMessage');
     case 'item/plan/delta':
@@ -123,7 +131,7 @@ export function projectNotification(notification: CodexNotification): AgentEvent
         type: 'item.updated',
         threadId,
         turnId,
-        item: { id: `compaction-${turnId}`, type: 'contextCompaction', kind: 'system', title: 'Context compacted', text: '' },
+        item: { id: `compaction-${turnId}`, type: 'contextCompaction', kind: 'system', title: 'Context compacted', text: '', status: 'completed', source: 'automatic' },
       };
     }
     case 'thread/realtime/itemAdded': {

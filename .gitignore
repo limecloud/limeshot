@@ -3,6 +3,7 @@ node_modules/
 dist/
 out/
 forge-out/
+assets/icons/*.iconset/
 coverage/
 test-results/
 playwright-report/

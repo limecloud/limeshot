@@ -1,0 +1,4 @@
+interface:
+  display_name: "LimeShot 发布"
+  short_description: "准备 LimeShot 跨平台版本、Actions 与发布资产复核"
+  default_prompt: "Use $limeshot-release-workflow to prepare and execute the next LimeShot release through verified GitHub Actions assets."

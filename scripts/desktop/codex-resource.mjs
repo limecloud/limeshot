@@ -3,11 +3,15 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
+export function platformKey(platform, arch) {
+  if (platform === 'darwin' && arch === 'arm64') return 'darwin-arm64';
+  if (platform === 'darwin' && arch === 'x64') return 'darwin-x64';
+  if (platform === 'win32' && arch === 'x64') return 'win32-x64';
+  return `${platform}-${arch}`;
+}
+
 export function currentPlatformKey() {
-  if (process.platform === 'darwin' && process.arch === 'arm64') return 'darwin-arm64';
-  if (process.platform === 'darwin' && process.arch === 'x64') return 'darwin-x64';
-  if (process.platform === 'win32' && process.arch === 'x64') return 'win32-x64';
-  return `${process.platform}-${process.arch}`;
+  return platformKey(process.platform, process.arch);
 }
 
 export function resolveVerifiedCodexBinary(root, options = {}) {

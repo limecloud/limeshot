@@ -1,7 +1,7 @@
 {
   "name": "limeshot",
   "productName": "LimeShot",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "AI 内容生产桌面工作台",
   "type": "module",
@@ -31,9 +31,10 @@
     "artifact:check": "node scripts/protocol/check-artifacts.mjs",
     "resource:check": "node scripts/quality/check-resource-provenance.mjs",
     "governance:runtime-boundary": "node scripts/quality/check-runtime-boundary.mjs",
+    "governance:ui-parity": "node scripts/quality/check-ui-parity.mjs",
     "verify:gui-smoke": "node scripts/smoke/electron-smoke.mjs",
     "verify:app-version": "node scripts/quality/check-version.mjs",
-    "verify:local": "npm run verify:app-version && npm run governance:runtime-boundary && npm run resource:check && npm run typecheck && npm run test:contracts && npm run test:rust && npm run electron:build && npm run verify:gui-smoke"
+    "verify:local": "npm run verify:app-version && npm run governance:runtime-boundary && npm run governance:ui-parity && npm run resource:check && npm run typecheck && npm run test:contracts && npm run test:rust && npm run electron:build && npm run verify:gui-smoke"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

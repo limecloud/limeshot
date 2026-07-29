@@ -12,9 +12,13 @@ import type {
   ManagedResourceDescriptor,
   PlanListResult,
   PlanReadResult,
+  ProjectArchiveParams,
+  ProjectArchiveResult,
   ProjectCreateResult,
   ProjectExecutionReadResult,
   ProjectReadResult,
+  ProjectRenameParams,
+  ProjectRenameResult,
   ProjectSummary,
   ServiceDescriptor,
   SkillDescriptor,
@@ -35,9 +39,22 @@ export const DESKTOP_IPC = {
   projectOpen: 'project:open',
   projectList: 'project:list',
   projectRead: 'project:read',
+  projectRename: 'project:rename',
+  projectArchive: 'project:archive',
+  projectReveal: 'project:reveal',
   briefUpdate: 'brief:update',
   conversationList: 'conversation:list',
+  conversationImportList: 'conversation:import-list',
+  conversationImport: 'conversation:import',
   conversationStart: 'conversation:start',
+  conversationRename: 'conversation:rename',
+  conversationArchive: 'conversation:archive',
+  conversationDelete: 'conversation:delete',
+  conversationReveal: 'conversation:reveal',
+  conversationCopyWorkingDirectory: 'conversation:copy-working-directory',
+  conversationCopySessionId: 'conversation:copy-session-id',
+  projectConversationList: 'conversation:project-list',
+  projectConversationsArchive: 'conversation:archive-project',
   threadInspect: 'agent:thread-inspect',
   turnStart: 'turn:start',
   turnInterrupt: 'turn:interrupt',
@@ -75,7 +92,15 @@ export interface AgentConversationSummary {
   threadId: string;
   title: string;
   updatedAtEpochMs: number;
+  origin: 'limeshot' | 'codex';
+  client: 'cli' | 'vscode' | 'appServer' | 'unknown';
+  workspaceLabel?: string;
 }
+export interface AgentProjectConversationSummary extends AgentConversationSummary {
+  projectId: string;
+  conversationId: string;
+}
+export interface ConversationImportInput { threadId: string; }
 export interface ConversationStartInput {
   projectId: string | null;
   conversationId: string;
@@ -87,6 +112,18 @@ export interface ConversationStartResult {
   turns: AgentTurnProjection[];
   access: 'active' | 'readOnly';
 }
+export interface ConversationTargetInput {
+  projectId: string | null;
+  conversationId: string;
+  threadId: string;
+}
+export interface ConversationRenameInput extends ConversationTargetInput { title: string; }
+export interface ProjectConversationsArchiveInput { projectId: string; }
+export interface ProjectConversationsArchiveResult {
+  archivedThreadIds: string[];
+  failedThreadIds: string[];
+}
+export interface ProjectConversationListResult { conversations: AgentProjectConversationSummary[]; }
 export interface AgentThreadInspectInput { parentThreadId: string; threadId: string; }
 export interface AgentThreadInspectResult {
   threadId: string;
@@ -106,11 +143,24 @@ export interface DesktopApi {
     open(input: ProjectOpenInput): Promise<ProjectCreateResult | null>;
     list(): Promise<ProjectSummary[]>;
     read(projectId: string): Promise<ProjectReadResult>;
+    rename(params: ProjectRenameParams): Promise<ProjectRenameResult>;
+    archive(params: ProjectArchiveParams): Promise<ProjectArchiveResult>;
+    reveal(projectId: string): Promise<void>;
     updateBrief(params: BriefUpdateParams): Promise<BriefUpdateResult>;
   };
   agent: {
     listConversations(): Promise<AgentConversationSummary[]>;
+    listImportCandidates(): Promise<AgentConversationSummary[]>;
+    importConversation(input: ConversationImportInput): Promise<AgentConversationSummary>;
     startConversation(input: ConversationStartInput): Promise<ConversationStartResult>;
+    renameConversation(input: ConversationRenameInput): Promise<void>;
+    archiveConversation(input: ConversationTargetInput): Promise<void>;
+    deleteConversation(input: ConversationTargetInput): Promise<void>;
+    revealConversation(input: ConversationTargetInput): Promise<void>;
+    copyConversationWorkingDirectory(input: ConversationTargetInput): Promise<void>;
+    copyConversationSessionId(input: ConversationTargetInput): Promise<void>;
+    listProjectConversations(input: ProjectConversationsArchiveInput): Promise<ProjectConversationListResult>;
+    archiveProjectConversations(input: ProjectConversationsArchiveInput): Promise<ProjectConversationsArchiveResult>;
     inspectSubThread(input: AgentThreadInspectInput): Promise<AgentThreadInspectResult>;
     startTurn(input: TurnStartInput): Promise<TurnStartResult>;
     interrupt(input: TurnInterruptInput): Promise<void>;

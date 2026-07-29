@@ -5,7 +5,7 @@ mod execution;
 
 pub use execution::*;
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 pub const INITIALIZE: &str = "initialize";
@@ -22,10 +22,14 @@ pub const SERVICE_LIST: &str = "service/list";
 pub const PROJECT_CREATE: &str = "project/create";
 pub const PROJECT_LIST: &str = "project/list";
 pub const PROJECT_READ: &str = "project/read";
+pub const PROJECT_RENAME: &str = "project/rename";
+pub const PROJECT_ARCHIVE: &str = "project/archive";
 pub const PROJECT_CONTEXT_READ: &str = "project/context/read";
 pub const BRIEF_UPDATE: &str = "brief/update";
 pub const CONVERSATION_BIND: &str = "conversation/bind";
 pub const CONVERSATION_BINDING_READ: &str = "conversation/binding/read";
+pub const CONVERSATION_BINDING_LIST: &str = "conversation/binding/list";
+pub const CONVERSATION_UNBIND: &str = "conversation/unbind";
 pub const PLAN_LIST: &str = "plan/list";
 pub const PLAN_READ: &str = "plan/read";
 pub const APPROVAL_DECIDE: &str = "approval/decide";
@@ -440,6 +444,31 @@ pub struct ProjectReadResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectRenameParams {
+    pub project_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRenameResult {
+    pub project: ProjectSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectArchiveParams {
+    pub project_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectArchiveResult {
+    pub project: ProjectSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectContextReadParams {
     pub project_id: String,
 }
@@ -500,6 +529,32 @@ pub struct ConversationBindingReadParams {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationBindingReadResult {
+    pub binding: ConversationBinding,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationBindingListParams {
+    pub project_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationBindingListResult {
+    pub bindings: Vec<ConversationBinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationUnbindParams {
+    pub project_id: String,
+    pub conversation_id: String,
+    pub expected_codex_thread_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationUnbindResult {
     pub binding: ConversationBinding,
 }
 
@@ -699,7 +754,7 @@ pub fn protocol_schema_bundle() -> Value {
         "title": "LimeShot Business JSON-RPC 2.0",
         "protocolVersion": PROTOCOL_VERSION,
         "requiredEnvelope": ["jsonrpc", "id", "method", "params"],
-        "methods": [INITIALIZE, BUSINESS_STATUS_READ, BUSINESS_SHUTDOWN, BUSINESS_PROFILE_LIST, SKILL_LIST, TOOL_CATALOG_LIST, TOOL_CALL, ARTIFACT_CONTRACT_LIST, PROVIDER_CAPABILITY_LIST, SERVICE_LIST, PROJECT_CREATE, PROJECT_LIST, PROJECT_READ, PROJECT_CONTEXT_READ, BRIEF_UPDATE, CONVERSATION_BIND, CONVERSATION_BINDING_READ, PLAN_LIST, PLAN_READ, APPROVAL_DECIDE, SOURCE_ASSET_IMPORT, PROJECT_EXECUTION_READ, TASK_START, TASK_CANCEL, TASK_RETRY, DELIVERABLE_CONFIRM, RESOURCE_LIST]
+        "methods": [INITIALIZE, BUSINESS_STATUS_READ, BUSINESS_SHUTDOWN, BUSINESS_PROFILE_LIST, SKILL_LIST, TOOL_CATALOG_LIST, TOOL_CALL, ARTIFACT_CONTRACT_LIST, PROVIDER_CAPABILITY_LIST, SERVICE_LIST, PROJECT_CREATE, PROJECT_LIST, PROJECT_READ, PROJECT_RENAME, PROJECT_ARCHIVE, PROJECT_CONTEXT_READ, BRIEF_UPDATE, CONVERSATION_BIND, CONVERSATION_BINDING_READ, CONVERSATION_BINDING_LIST, CONVERSATION_UNBIND, PLAN_LIST, PLAN_READ, APPROVAL_DECIDE, SOURCE_ASSET_IMPORT, PROJECT_EXECUTION_READ, TASK_START, TASK_CANCEL, TASK_RETRY, DELIVERABLE_CONFIRM, RESOURCE_LIST]
     })
 }
 

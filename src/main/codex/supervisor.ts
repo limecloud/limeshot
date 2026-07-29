@@ -22,6 +22,7 @@ function resolveExecutable(): string {
 
 function developmentExecutableName(): string {
   if (process.platform === 'darwin' && process.arch === 'arm64') return 'codex-aarch64-apple-darwin';
+  if (process.platform === 'win32' && process.arch === 'x64') return 'codex-x86_64-pc-windows-msvc.exe';
   throw new Error(`当前开发平台没有受管 Codex release: ${process.platform}-${process.arch}`);
 }
 

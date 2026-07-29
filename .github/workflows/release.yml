@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version tag to release (for example v0.3.0)"
+        description: "Version tag to release (for example v0.4.0)"
         required: true
-        default: "v0.3.0"
+        default: "v0.4.0"
       source_ref:
         description: "Git ref to build (defaults to the triggering ref)"
         required: false
@@ -98,6 +98,7 @@ jobs:
       - name: Run release gates
         run: |
           npm run verify:app-version
+          npm run resource:check
           npm run typecheck
           npm run test:contracts
           npm test
@@ -205,11 +206,7 @@ jobs:
           mkdir -p release-assets
           cp "forge-out/make/LimeShot-$version-arm64.dmg" release-assets/
           cp "forge-out/make/zip/darwin/arm64/LimeShot-darwin-arm64-$version.zip" release-assets/
-          cd release-assets
-          shasum -a 256 \
-            "LimeShot-$version-arm64.dmg" \
-            "LimeShot-darwin-arm64-$version.zip" > SHA256SUMS.txt
-          shasum -a 256 -c SHA256SUMS.txt
+          test "$(find release-assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = "2"
 
       - name: Upload staged release assets
         uses: actions/upload-artifact@v4
@@ -219,9 +216,177 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build_windows_x64:
+    name: Build Windows x64
+    needs:
+      - prepare_release
+      - quality
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          shared-key: windows-x64-electron
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve fixed Codex release
+        id: codex
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $manifest = Get-Content "resources/codex/manifest.v1.json" -Raw | ConvertFrom-Json
+          $release = $manifest.releases | Where-Object { $_.platformKey -eq "win32-x64" }
+          if ($null -eq $release) { throw "Codex manifest is missing win32-x64" }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$($manifest.version)"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "source_url=$($release.sourceUrl)"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "archive_name=$($release.archiveName)"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "archive_sha256=$($release.archiveSha256)"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "executable_name=$($release.executableName)"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "executable_sha256=$($release.executableSha256)"
+
+      - name: Download and verify fixed Codex
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $codexDir = Join-Path $env:RUNNER_TEMP "codex-${{ steps.codex.outputs.version }}"
+          $archive = Join-Path $codexDir "${{ steps.codex.outputs.archive_name }}"
+          $binary = Join-Path $codexDir "${{ steps.codex.outputs.executable_name }}"
+          New-Item -ItemType Directory -Force -Path $codexDir | Out-Null
+          curl.exe --fail --location --retry 5 --retry-all-errors --output $archive "${{ steps.codex.outputs.source_url }}"
+          if ($LASTEXITCODE -ne 0) { throw "Failed to download fixed Codex release" }
+          $archiveHash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          if ($archiveHash -ne "${{ steps.codex.outputs.archive_sha256 }}") {
+            throw "Codex archive SHA-256 mismatch: $archiveHash"
+          }
+          Expand-Archive -Path $archive -DestinationPath $codexDir -Force
+          $binaryHash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
+          if ($binaryHash -ne "${{ steps.codex.outputs.executable_sha256 }}") {
+            throw "Codex executable SHA-256 mismatch: $binaryHash"
+          }
+          $versionOutput = (& $binary --version | Out-String).Trim()
+          if ($versionOutput -ne "codex-cli ${{ steps.codex.outputs.version }}") {
+            throw "Codex version mismatch: $versionOutput"
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "LIMESHOT_CODEX_BIN=$binary"
+          Add-Content -Path $env:GITHUB_ENV -Value "LIMESHOT_CODEX_PACKAGE_BIN=$binary"
+
+      - name: Prepare optional Windows signing certificate
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD)
+          if (-not $hasCertificate -and -not $hasPassword) {
+            Add-Content -Path $env:GITHUB_ENV -Value "LIMESHOT_ELECTRON_SIGN=0"
+            Write-Host "Windows signing secrets are not configured; Squirrel assets will be unsigned."
+            exit 0
+          }
+          if (-not $hasCertificate -or -not $hasPassword) {
+            throw "Windows signing certificate and password must be configured together"
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "limeshot-electron-signing.pfx"
+          [IO.File]::WriteAllBytes(
+            $certificatePath,
+            [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE)
+          )
+          Add-Content -Path $env:GITHUB_ENV -Value "LIMESHOT_ELECTRON_SIGN=1"
+          Add-Content -Path $env:GITHUB_ENV -Value "LIMESHOT_WINDOWS_SIGNING_CERTIFICATE_FILE=$certificatePath"
+          Add-Content -Path $env:GITHUB_ENV -Value "LIMESHOT_WINDOWS_SIGNING_CERTIFICATE_PASSWORD=$($env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD)"
+
+      - name: Build and run Windows Gate B
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          npm run electron:build
+          npm run verify:gui-smoke
+
+      - name: Build Windows Squirrel distributables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          npm run package:stage
+          npx electron-forge make --platform win32 --arch x64 --targets squirrel
+
+      - name: Verify packaged app and Squirrel assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = node -p "require('./package.json').version"
+          $app = "forge-out/LimeShot-win32-x64"
+          $appExecutable = Join-Path $app "LimeShot.exe"
+          $codex = Join-Path $app "resources/bin/codex.exe"
+          $business = Join-Path $app "resources/bin/business-server.exe"
+          foreach ($path in @($appExecutable, $codex, $business)) {
+            if (-not (Test-Path $path -PathType Leaf)) { throw "Missing packaged file: $path" }
+          }
+          $codexVersion = (& $codex --version | Out-String).Trim()
+          if ($codexVersion -ne "codex-cli ${{ steps.codex.outputs.version }}") {
+            throw "Packaged Codex version mismatch: $codexVersion"
+          }
+          & $business --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Packaged business-server failed to start" }
+          $makeDir = "forge-out/make/squirrel.windows/x64"
+          $setup = Join-Path $makeDir "LimeShot-$version-Setup.exe"
+          $releases = Join-Path $makeDir "RELEASES"
+          $packages = @(Get-ChildItem $makeDir -Filter "*.nupkg" -File)
+          if (-not (Test-Path $setup -PathType Leaf)) { throw "Missing Squirrel installer: $setup" }
+          if (-not (Test-Path $releases -PathType Leaf)) { throw "Missing Squirrel RELEASES manifest" }
+          if ($packages.Count -ne 1) { throw "Expected one Squirrel NuGet package, found $($packages.Count)" }
+          if ((Get-Item $setup).Length -le 0 -or $packages[0].Length -le 0) {
+            throw "Squirrel produced an empty release asset"
+          }
+
+      - name: Stage Windows release assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = node -p "require('./package.json').version"
+          $makeDir = "forge-out/make/squirrel.windows/x64"
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          Copy-Item (Join-Path $makeDir "LimeShot-$version-Setup.exe") release-assets/
+          Copy-Item (Join-Path $makeDir "RELEASES") release-assets/
+          Copy-Item (Get-ChildItem $makeDir -Filter "*.nupkg" -File).FullName release-assets/
+          $assets = @(Get-ChildItem release-assets -File)
+          if ($assets.Count -ne 3) { throw "Expected three Windows release assets, found $($assets.Count)" }
+
+      - name: Upload staged release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-win32-x64
+          path: release-assets
+          if-no-files-found: error
+          retention-days: 7
+
   publish_release:
     name: Publish GitHub Release
-    needs: build_macos_arm64
+    needs:
+      - build_macos_arm64
+      - build_windows_x64
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout release source
@@ -236,13 +401,33 @@ jobs:
           name: release-assets-darwin-arm64
           path: release-assets
 
-      - name: Verify downloaded assets
+      - name: Download staged Windows release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets-win32-x64
+          path: release-assets
+
+      - name: Verify downloaded assets and create checksums
         shell: bash
         run: |
           set -euo pipefail
           cd release-assets
-          test "$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')" = "3"
+          version="$(node -p "require('../package.json').version")"
+          test -f "LimeShot-$version-arm64.dmg"
+          test -f "LimeShot-darwin-arm64-$version.zip"
+          test -f "LimeShot-$version-Setup.exe"
+          test -f "RELEASES"
+          mapfile -t packages < <(find . -maxdepth 1 -type f -name "*.nupkg" -printf '%f\n')
+          test "${#packages[@]}" = "1"
+          test "$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')" = "5"
+          shasum -a 256 \
+            "LimeShot-$version-arm64.dmg" \
+            "LimeShot-darwin-arm64-$version.zip" \
+            "LimeShot-$version-Setup.exe" \
+            "${packages[0]}" \
+            "RELEASES" > SHA256SUMS.txt
           shasum -a 256 -c SHA256SUMS.txt
+          test "$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')" = "6"
 
       - name: Replace Release assets and publish
         env:

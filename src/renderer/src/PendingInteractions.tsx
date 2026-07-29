@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleX,
   Clock3,
   FileCode2,
@@ -56,7 +58,7 @@ export function PendingInteractions({ interactions, currentThreadId, turns, onSu
 
   const scoped = scope === 'current' ? current : other;
   const actionable = scoped.filter(isActionable);
-  const active = actionable[0] ?? [...scoped].reverse().find((interaction) => !isActionable(interaction));
+  const active = actionable[0];
   const selectAdjacentScope = (direction: -1 | 1) => {
     const scopes = ([current.length > 0 && 'current', other.length > 0 && 'other'] as const).filter((value): value is 'current' | 'other' => Boolean(value));
     const index = scopes.indexOf(scope);
@@ -78,8 +80,8 @@ export function PendingInteractions({ interactions, currentThreadId, turns, onSu
   return (
     <section className="interaction-surface" role="region" aria-labelledby="pending-interaction-title" tabIndex={-1} ref={panelRef} data-kind={active.kind} data-status={active.status}>
       <header>
-        <div className="interaction-heading">{interactionIcon(active)}<div><strong id="pending-interaction-title">{t('interaction.title')}</strong><span>{kindLabel(active, t)}</span></div></div>
-        <div className="interaction-tabs" role="tablist" aria-label={t('interaction.scope')} onKeyDown={(event) => {
+        <div className="interaction-heading">{interactionIcon(active)}<div><span>{kindLabel(active, t)}</span><strong id="pending-interaction-title">{t('interaction.title')}</strong></div></div>
+        {other.length > 0 ? <div className="interaction-tabs" role="tablist" aria-label={t('interaction.scope')} onKeyDown={(event) => {
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             event.preventDefault();
             selectAdjacentScope(event.key === 'ArrowLeft' ? -1 : 1);
@@ -87,7 +89,7 @@ export function PendingInteractions({ interactions, currentThreadId, turns, onSu
         }}>
           <button ref={currentTabRef} id="interaction-tab-current" type="button" role="tab" aria-selected={scope === 'current'} aria-controls="interaction-tabpanel" tabIndex={scope === 'current' ? 0 : -1} onClick={() => setScope('current')} disabled={current.length === 0}>{t('interaction.currentThread')}<small>{currentPending.length}</small></button>
           <button ref={otherTabRef} id="interaction-tab-other" type="button" role="tab" aria-selected={scope === 'other'} aria-controls="interaction-tabpanel" tabIndex={scope === 'other' ? 0 : -1} onClick={() => setScope('other')} disabled={other.length === 0}>{t('interaction.otherThreads')}<small>{otherPending.length}</small></button>
-        </div>
+        </div> : null}
       </header>
       <div className="interaction-body" id="interaction-tabpanel" role="tabpanel" aria-labelledby={`interaction-tab-${scope}`} key={active.interactionId}>
         <InteractionStatus interaction={active} t={t} />
@@ -163,9 +165,11 @@ function ApprovalPrompt({ interaction, turns, disabled, onSubmit, t }: { interac
 }
 
 function UserInputForm({ interaction, disabled, onSubmit, t }: { interaction: AgentUserInputRequestProjection; disabled: boolean; onSubmit: PendingInteractionsProps['onSubmit']; t: Translate }) {
+  const [questionIndex, setQuestionIndex] = useState(0);
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [otherSelected, setOtherSelected] = useState<Record<string, boolean>>({});
   const [freeform, setFreeform] = useState<Record<string, string>>({});
+  const question = interaction.questions[questionIndex];
 
   const choose = (questionId: string, label: string, multiple: boolean) => {
     setSelected((current) => {
@@ -185,24 +189,35 @@ function UserInputForm({ interaction, disabled, onSubmit, t }: { interaction: Ag
     return onSubmit({ interactionId: interaction.interactionId, actionToken: interaction.actionToken, kind: interaction.kind, answers });
   };
 
+  if (!question) return null;
+  const inputType = question.multiple ? 'checkbox' : 'radio';
+  const name = `${interaction.interactionId}-${question.id || questionIndex}`;
+  const values = selected[question.id] ?? [];
+  const showFreeform = question.options.length === 0 || question.allowsOther || values.length > 0;
+  const isFirst = questionIndex === 0;
+  const isLast = questionIndex === interaction.questions.length - 1;
+
   return (
     <div className="interaction-form">
+      <div className="interaction-question-header">
+        <span>{question.header || `${t('interaction.question')} ${questionIndex + 1}`}</span>
+        <small>{questionIndex + 1}/{interaction.questions.length}</small>
+      </div>
       {interaction.autoResolutionAt ? <AutoResolutionCountdown at={interaction.autoResolutionAt} t={t} /> : null}
-      <div className="interaction-questions">{interaction.questions.map((question, index) => {
-        const inputType = question.multiple ? 'checkbox' : 'radio';
-        const name = `${interaction.interactionId}-${question.id || index}`;
-        const values = selected[question.id] ?? [];
-        const showFreeform = question.options.length === 0 || question.allowsOther || values.length > 0;
-        return (
-          <fieldset key={`${question.id}-${index}`}>
-            <legend><span>{question.header || `${t('interaction.question')} ${index + 1}`}</span><strong>{question.question}</strong></legend>
-            {question.options.length > 0 ? <div className="interaction-options">{question.options.map((option) => <label key={option.label}><input type={inputType} name={name} checked={values.includes(option.label)} disabled={disabled} onChange={() => choose(question.id, option.label, question.multiple)} /><span><strong>{option.label}</strong>{option.description ? <small>{option.description}</small> : null}</span></label>)}</div> : null}
-            {question.allowsOther ? <label className="interaction-other"><input type={inputType} name={name} checked={otherSelected[question.id] === true} disabled={disabled} onChange={() => { setOtherSelected((current) => ({ ...current, [question.id]: !current[question.id] })); if (!question.multiple) setSelected((current) => ({ ...current, [question.id]: [] })); }} /><span>{t('interaction.other')}</span></label> : null}
-            {showFreeform ? <label className="interaction-freeform"><span>{question.options.length === 0 ? t('interaction.answer') : t('interaction.notes')}</span><input type={question.secret ? 'password' : 'text'} {...(question.secret ? { defaultValue: '' } : { value: freeform[question.id] ?? '' })} disabled={disabled} autoComplete="off" spellCheck={!question.secret} onChange={(event) => setFreeform((current) => ({ ...current, [question.id]: event.target.value }))} /></label> : null}
-          </fieldset>
-        );
-      })}</div>
-      <div className="interaction-actions"><button type="button" className="primary" disabled={disabled} onClick={() => void submit()}>{t('interaction.submit')}</button></div>
+      <div className="interaction-questions">
+        <fieldset key={`${question.id}-${questionIndex}`}>
+          <legend><strong>{question.question}</strong></legend>
+          {question.options.length > 0 ? <div className="interaction-options">{question.options.map((option) => <label key={option.label}><input type={inputType} name={name} checked={values.includes(option.label)} disabled={disabled} onChange={() => choose(question.id, option.label, question.multiple)} /><span><strong>{option.label}</strong>{option.description ? <small>{option.description}</small> : null}</span></label>)}</div> : null}
+          {question.allowsOther ? <label className="interaction-other"><input type={inputType} name={name} checked={otherSelected[question.id] === true} disabled={disabled} onChange={() => { setOtherSelected((current) => ({ ...current, [question.id]: !current[question.id] })); if (!question.multiple) setSelected((current) => ({ ...current, [question.id]: [] })); }} /><span>{t('interaction.other')}</span></label> : null}
+          {showFreeform ? <label className="interaction-freeform"><span>{question.options.length === 0 ? t('interaction.answer') : t('interaction.notes')}</span><input type={question.secret ? 'password' : 'text'} {...(question.secret ? { defaultValue: '' } : { value: freeform[question.id] ?? '' })} disabled={disabled} autoComplete="off" spellCheck={!question.secret} onChange={(event) => setFreeform((current) => ({ ...current, [question.id]: event.target.value }))} /></label> : null}
+        </fieldset>
+      </div>
+      <div className="interaction-actions interaction-question-actions">
+        {!isFirst ? <button type="button" title={t('interaction.previous')} aria-label={t('interaction.previous')} disabled={disabled} onClick={() => setQuestionIndex((index) => index - 1)}><ChevronLeft size={14} aria-hidden="true" /></button> : null}
+        {isLast
+          ? <button type="button" className="primary" disabled={disabled} onClick={() => void submit()}>{t('interaction.submit')}</button>
+          : <button type="button" className="primary" disabled={disabled} onClick={() => setQuestionIndex((index) => index + 1)}>{t('interaction.next')}<ChevronRight size={14} aria-hidden="true" /></button>}
+      </div>
     </div>
   );
 }

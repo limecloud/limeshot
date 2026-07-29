@@ -2,30 +2,86 @@
 
 状态：`current`
 
-## 最低门禁
+## 唯一受测产品链
+
+```text
+Electron Renderer -> preload -> Electron Main
+  -> managed Codex App Server
+  -> Rust Business Service
+  -> semantic projection -> GUI
+```
+
+测试必须说明覆盖了哪一段。旧 runtime、production mock、浏览器静态投影或单侧 protocol fixture 通过，不能证明完整产品链可交付。
+
+## 选择最低门禁
+
+先跑最贴风险的检查，再按跨层影响扩大：
 
 | 改动面 | 最低验证 |
 | --- | --- |
-| 文档/治理 | current/dead 语义扫描、链接与 Mermaid 人工检查 |
-| Codex client | framing、request、notification、reverse request、timeout、EOF、crash cleanup |
-| Rust business protocol | schema、TS client、router fixture、unknown method/invalid params |
-| Electron/preload | semantic allowlist contract + typecheck |
-| Project binding | bind/read、唯一性、restart 后 `thread/resume|read` fixture |
-| ToolHost | catalog/schema/scope/approval/cancel/timeout negative tests |
-| Provider/Media | reconcile、成本、下载、真实 FFprobe/FFmpeg fixture、确定性 QA、Artifact 完整性负向测试 |
-| GUI 主链 | 真实 Electron Gate B，不使用 production mock |
+| 文档/治理 | `git diff --check`、链接/术语扫描；触及回流规则加 `npm run governance:runtime-boundary` |
+| 纯 TS projection/state/parser | 相关 Vitest 文件 + `npm run typecheck` |
+| React 组件/交互 | 相关 `*.test.tsx` + 五语言断言；主路径加 Gate B |
+| Codex client/method | framing/request/reverse-request/timeout/EOF tests + `npm run test:contracts` |
+| Rust business protocol | schema/client/router fixture + `npm run test:contracts` + 对应 crate 测试 |
+| Electron/preload/semantic IPC | `npm run typecheck` + `npm run test:contracts` + Gate B |
+| Project binding/history restore | Rust repository tests + Codex resume/read fixture + Gate B |
+| ToolHost/Provider/Media | 对应 crate tests、negative cases；用户路径加 Gate B |
+| 资源 manifest | `npm run resource:check` |
+| 版本/Forge/workspace manifest | `npm run verify:app-version` + `npm run resource:check` |
+| 正式发布 | `npm run verify:local` + GitHub Actions platform/packaged evidence |
 
-## Gate B
+默认本地聚合入口：
 
-Gate B 必须证明真实 Electron、preload/IPC、Codex child、Rust business child、两条独立 stdio 协议、Project binding、一个真实 Turn 和用户可见终态。媒体/交付主链还必须覆盖结构化执行、取消或失败、Artifact/QA、GUI semantic confirm 与重启恢复；浏览器投影或单侧 fixture 只能作为 Gate A。
+```bash
+npm run verify:local
+```
+
+不要发明不存在的 `test:related`、`test:resume` 或脚本治理命令。需要缩小测试时直接运行对应 Vitest 文件或 Rust crate。
+
+## 证据等级
+
+| 等级 | 能证明 | 不能证明 |
+| --- | --- | --- |
+| Unit | 纯转换、状态机、parser、schema 的确定性 | 跨模块接线、进程边界 |
+| Contract | protocol、typed client、semantic API 集合一致 | Electron 与用户可见状态 |
+| Domain integration | Rust repository/executor/SQLite/进程协作 | Codex 或 Electron 主链 |
+| Gate A | Renderer DOM、交互和可见投影 | preload、IPC、child process |
+| Gate B | 真实 Electron、preload/IPC、Codex child、Rust child、两套 stdio 与 GUI | live Provider、打包安装器和另一操作系统 |
+| Platform/packaged | 实际 macOS/Windows runner、App bundle/Squirrel 与内嵌资源 | 未运行平台 |
+| Live | 指定 Provider/model/config 下的能力 | 其他 Provider、地区和平台 |
+
+`npm run verify:gui-smoke` 是当前 Gate B：使用真实 Electron、真实 Codex/Rust 进程和受控 provider/media fixtures，不是 production mock，也不等于 live Provider 或 packaged clean-machine evidence。
+
+## Gate B 合同
+
+Gate B 至少证明：
+
+1. preload semantic API 存在且 Renderer 不接触 raw protocol。
+2. Codex 与 Rust child 均由 Electron 启动并使用独立 stdio client。
+3. 一个真实 Turn 到达 Codex terminal event，业务工具输出经过 Rust ToolHost 返回。
+4. Project binding、paginated history、projection 和 interrupt 可在冷启动后恢复。
+5. 业务链覆盖审批、Task、Artifact/QA、Deliverable 或本轮声明的等价主路径。
+6. production mock fallback、绝对路径泄漏和水平溢出为零。
+7. 失败输出包含 scenario、expected/actual 与最近进程日志，不只报 timeout。
+
+## 测试作者合同
+
+- 从 public boundary 进入，不直接调用私有 handler 伪造跨层成功。
+- 等待真实业务事件或 terminal predicate，不用固定 sleep 合成完成态。
+- 每个测试隔离 user data、workspace、数据库、端口和凭证。
+- fixture 必须显式 test-only；生产代码不得根据测试失败自动回退 fixture。
+- 修复缺陷时在最接近根因的 owner 层补回归，再按风险补跨层证据。
+- 不为已删除 runtime 或静态常量保留正向行为测试；旧名只进负向 guard。
 
 ## 正式发布
 
-- `.github/workflows/release.yml` 是正式 DMG、ZIP、SHA-256 与 GitHub Release 的唯一构建和发布 owner；开发机产物只能用于本地验收，不得上传为正式 Release asset。
-- workflow 固定 Node 22 与 Rust stable，从 `resources/codex/manifest.v1.json` 下载官方 Codex，并在打包前同时校验 archive hash、executable hash 与版本输出。
-- GitHub Release 先建立 draft；只有版本、类型、协议、Rust、Forge、App bundle、签名完整性、DMG、ZIP 和下载后 hash 全部通过，才允许覆盖资产并发布。
-- 当前发布矩阵只有 `macOS arm64`。新增平台前必须先补 Codex manifest、业务 companion、Forge maker 和平台验收，不得上传未校验占位包。
+- `.github/workflows/release.yml` 是正式产物唯一 owner；本地包不得上传为 Release asset。
+- workflow 固定 Node 22、Rust stable 和 manifest 指定 Codex，校验 archive/executable hash 与版本。
+- macOS arm64 与 Windows x64 必须在各自 runner 原生构建；Windows 使用 Forge Squirrel。
+- publish job 只在质量与全部平台 job 成功后汇总资产、生成统一 `SHA256SUMS.txt` 并发布。
+- 未在真实平台运行的步骤必须写成待验证，不能因 YAML 可解析而标记通过。
 
 ## 收尾报告
 
-每轮报告 current/compat/deprecated/dead 分类、实际运行的验证、未验证原因和完成度。旧 Agent runtime 单测通过不构成 current 进展。
+报告风险类型、实际命令、证据等级、未执行原因、Gate B/平台状态、四类治理归属和完成度。路线图任务还要说明本轮证明了哪条主链在前进。

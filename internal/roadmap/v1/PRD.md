@@ -426,6 +426,7 @@ Deliverable 不是文件副本，而是用户确认的交付记录：
 | `AGT-03` | 流式展示回复、工具调用、等待输入、等待批准和失败状态 | P0 |
 | `AGT-04` | 用户可中断当前 Turn，已完成内容仍可见 | P0 |
 | `AGT-05` | Agent 不足以作答时进入 `needs_input`，不得虚构素材或探测结果 | P0 |
+| `AGT-06` | 同一 Codex home 中的根 Thread 自动按 `cwd` 归入已打开 Project 目录或其子目录，其余自动进入“最近”；用户可完整、只读地查看未绑定历史，LimeShot 不复制 Codex history | P0 |
 
 ### 8.6 计划与审批
 
@@ -722,6 +723,7 @@ v1 先验证闭环是否成立，不用注册数、聊天条数等虚荣指标�
 | `AC-15` | 电商视频闭环 | 经确认的商品事实完成卖点、镜头、缺失资产、片段、CTA、品牌/事实 QA 和平台交付，不编造价格或功效 |
 | `AC-16` | 成本与恢复 | 批次部分成功后重启先 reconcile，保留成功 Artifact，只重试失败项；重提有新 quote/approval 且不重复计费 |
 | `AC-17` | 交付完整性 | 非媒体输出、缺少 passing QA、output/QA 文件缺失或 hash 改变时拒绝确认，不产生或切换 current Deliverable |
+| `AC-18` | Codex 对话导入 | 打开本地 Project 后，位于该目录或任意子目录的 CLI、VS Code、Exec 与 App Server 根 Thread 全部自动嵌套到该 Project，其余根 Thread 自动进入“最近”；完整历史可见、未绑定历史 Composer 只读，且 Rust/Renderer 不保存完整 history 或导入注册表 |
 
 ## 16. 未来机会与进入条件
 

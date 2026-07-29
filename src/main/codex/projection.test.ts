@@ -225,6 +225,48 @@ describe('Codex semantic projection', () => {
     expect(projected.find((item) => item.type === 'webSearch')).toMatchObject({
       results: [{ title: 'Codex docs', details: { rank: 1, token: '[redacted]' } }],
     });
+    expect(projected.find((item) => item.type === 'hookPrompt')).toMatchObject({ kind: 'user', title: 'Hook feedback' });
+    expect(projected.find((item) => item.type === 'contextCompaction')).toMatchObject({ status: 'completed', source: 'automatic' });
+  });
+
+  it('projects context compaction lifecycle without synthesizing a second runtime state', () => {
+    expect(projectNotification({ method: 'item/started', params: {
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      item: { id: 'compact-1', type: 'contextCompaction' },
+    } })).toMatchObject({
+      type: 'item.updated',
+      item: { type: 'contextCompaction', status: 'inProgress', source: 'automatic' },
+    });
+    expect(projectNotification({ method: 'item/completed', params: {
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      item: { id: 'compact-1', type: 'contextCompaction' },
+    } })).toMatchObject({
+      type: 'item.updated',
+      item: { type: 'contextCompaction', status: 'completed', source: 'automatic' },
+    });
+    expect(projectItem({ id: 'compact-manual', type: 'contextCompaction', status: 'inProgress', source: 'manual' })).toMatchObject({
+      status: 'inProgress',
+      source: 'manual',
+    });
+  });
+
+  it('projects MCP resource links from the upstream snake-case wire shape', () => {
+    expect(projectItem({
+      id: 'mcp-resource',
+      type: 'mcpToolCall',
+      server: 'assets',
+      tool: 'lookup',
+      arguments: {},
+      status: 'completed',
+      result: {
+        content: [{ type: 'resource_link', uri: 'mcp://assets/logo', name: 'Logo resource' }],
+      },
+    })).toMatchObject({
+      type: 'mcpToolCall',
+      content: [{ type: 'resourceLink', uri: 'mcp://assets/logo', name: 'Logo resource' }],
+    });
   });
 
   it('routes all 72 allowlisted notifications to their dedicated semantic event', () => {

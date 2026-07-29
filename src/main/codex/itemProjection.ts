@@ -67,7 +67,7 @@ export function projectItem(value: unknown, fallbackId = 'unknown-item'): AgentI
         const fragment = object(entry);
         return fragment ? { text: sanitizeText(stringValue(fragment.text) ?? ''), hookRunId: stringValue(fragment.hookRunId) ?? '' } : undefined;
       }).filter(isDefined);
-      return { id, type, kind: 'system', title: 'Hook context', text: fragments.map((entry) => entry.text).join('\n'), fragments };
+      return { id, type, kind: 'user', title: 'Hook feedback', text: fragments.map((entry) => entry.text).join('\n'), fragments };
     }
     case 'agentMessage': {
       const text = sanitizeText(stringValue(item.text) ?? '');
@@ -260,8 +260,10 @@ export function projectItem(value: unknown, fallbackId = 'unknown-item'): AgentI
       const review = sanitizeText(stringValue(item.review) ?? '');
       return { id, type, kind: 'system', title: type === 'enteredReviewMode' ? 'Entered review mode' : 'Exited review mode', text: review, review };
     }
-    case 'contextCompaction':
-      return { id, type, kind: 'system', title: 'Context compacted', text: '' };
+    case 'contextCompaction': {
+      const source = item.source === 'manual' ? 'manual' : 'automatic';
+      return { id, type, kind: 'system', title: 'Context compacted', text: '', status: item.status === 'inProgress' ? 'inProgress' : 'completed', source };
+    }
     default:
       return unknownItem(id, type, Object.keys(item));
   }
@@ -376,7 +378,7 @@ function projectToolContent(value: unknown): AgentToolContentProjection {
     const nested = object(resource?.resource);
     return { type: 'resource', uri: sanitizeUri(stringValue(nested?.uri) ?? stringValue(resource?.uri) ?? ''), ...(stringValue(nested?.text) ? { text: sanitizeText(stringValue(nested?.text) ?? '') } : {}) };
   }
-  if (type === 'resourceLink') {
+  if (type === 'resourceLink' || type === 'resource_link') {
     const link = object(content.resourceLink) ?? content;
     return { type: 'resourceLink', uri: sanitizeUri(stringValue(link.uri) ?? ''), ...(stringValue(link.name) ? { name: sanitizeText(stringValue(link.name) ?? '') } : {}) };
   }

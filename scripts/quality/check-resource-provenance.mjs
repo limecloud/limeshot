@@ -66,6 +66,11 @@ function validateCodexManifest(manifest, errors) {
     }
     platforms.add(release.platformKey);
   }
+  for (const requiredPlatform of ['darwin-arm64', 'win32-x64']) {
+    if (!platforms.has(requiredPlatform)) {
+      errors.push(`resources/codex/manifest.v1.json: missing required platform ${requiredPlatform}`);
+    }
+  }
 }
 
 async function collectFiles(directory) {

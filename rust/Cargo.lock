@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "artifacts"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "business-protocol",
  "hex",
@@ -103,7 +103,7 @@ dependencies = [
 
 [[package]]
 name = "business-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "artifacts",
  "business-protocol",
@@ -117,7 +117,7 @@ dependencies = [
 
 [[package]]
 name = "business-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "business-server"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "business-core",
  "business-protocol",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "media"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "business-protocol",
  "serde",
@@ -425,7 +425,7 @@ dependencies = [
 
 [[package]]
 name = "projects"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "business-protocol",
  "hex",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "providers"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "business-protocol",
  "serde",
@@ -492,7 +492,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "resources"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "business-protocol",
  "hex",
@@ -622,7 +622,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "skills"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "business-protocol",
  "serde",
@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "tools"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "business-protocol",
  "projects",

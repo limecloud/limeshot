@@ -6,12 +6,15 @@ import { CodexSupervisor } from './codex/supervisor';
 import { ConversationBindings } from './conversationBindings';
 import { registerIpc } from './ipc';
 
+app.setName('LimeShot');
+
 let business: BusinessSupervisor | undefined;
 let codex: CodexSupervisor | undefined;
 let unregisterIpc: (() => void) | undefined;
 
 function createWindow(): BrowserWindow {
   const hiddenForSmoke = process.env.LIMESHOT_ELECTRON_SMOKE === '1';
+  const appIcon = join(app.getAppPath(), 'assets/icons/limeshot.png');
   const window = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -19,7 +22,12 @@ function createWindow(): BrowserWindow {
     minHeight: 700,
     show: !hiddenForSmoke,
     title: 'LimeShot',
-    backgroundColor: '#f4f6f8',
+    icon: appIcon,
+    backgroundColor: '#ececeb',
+    ...(process.platform === 'darwin' ? {
+      titleBarStyle: 'hiddenInset' as const,
+      trafficLightPosition: { x: 16, y: 16 },
+    } : {}),
     webPreferences: { preload: join(__dirname, '../preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
   window.once('ready-to-show', () => { if (!hiddenForSmoke) window.show(); });
@@ -34,7 +42,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
-  app.setName('LimeShot');
+  if (process.platform === 'darwin') app.dock?.setIcon(join(app.getAppPath(), 'assets/icons/limeshot.png'));
   const bindings = new ConversationBindings();
   business = new BusinessSupervisor();
   codex = new CodexSupervisor(async (request) => {

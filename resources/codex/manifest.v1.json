@@ -14,6 +14,14 @@
       "archiveSha256": "072a30a65f05666735889ef0f60b56db186adbdde9d5c5cc1a64be0b598530fe",
       "executableName": "codex-aarch64-apple-darwin",
       "executableSha256": "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590"
+    },
+    {
+      "platformKey": "win32-x64",
+      "sourceUrl": "https://github.com/openai/codex/releases/download/rust-v0.145.0/codex-x86_64-pc-windows-msvc.exe.zip",
+      "archiveName": "codex-x86_64-pc-windows-msvc.exe.zip",
+      "archiveSha256": "bc6ae808bf5a9cdf113364ac281594d6da76dc103c19129e9d32caed54ec3cda",
+      "executableName": "codex-x86_64-pc-windows-msvc.exe",
+      "executableSha256": "83751f15cb6a0a7b97df67752c001e3fe1c20e18ffbfec3ff63567296205eb6c"
     }
   ]
 }

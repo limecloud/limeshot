@@ -21,7 +21,7 @@ Renderer 只看产品语义：
 | --- | --- | --- |
 | Foundation | `foundation.read` | Rust status/catalog 聚合投影 |
 | Project | `project.open`、`project.list`、`project.read`、`project.updateBrief` | `project.open` 先经 Electron 系统目录选择器；选中本地文件夹后经 Rust business client 登记 Project |
-| Conversation | `agent.listConversations`、`agent.startConversation` | standalone 只访问 Codex；Project Conversation 访问 Codex client + Rust binding |
+| Conversation | `agent.listConversations`、`agent.listProjectConversations`、`agent.listImportCandidates`、`agent.importConversation`、`agent.startConversation` | Codex 根 Thread 自动投影；Project Conversation 访问 Codex client + Rust binding |
 | Turn | `agent.startTurn`、`agent.interrupt`、`agent.subscribe` | Codex client |
 | Catalog | 包含在 `foundation.read` | Rust business client |
 | Plan | `plan.list`、`plan.read` | Rust business client |
@@ -36,6 +36,8 @@ Renderer 不得提交任意 Codex method、Rust JSON-RPC method、可执行文�
 Renderer 不暴露 `project.create`。`project.open` 是从 Composer 底部 `+` 菜单选择本地项目的唯一创建入口：Renderer 只提交 `profileId/language`，Electron 打开系统目录选择器；取消选择返回 `null`，选中一个目录后由 Electron 使用目录 basename 和绝对路径构造 Rust `project/create` 参数。目录路径不得经过 preload 返回 Renderer，也不得恢复自定义项目表单。
 
 未选择 Project 时，`agent.startConversation({ projectId: null, ... })` 创建或恢复 standalone Codex Thread，不读写 Rust Conversation binding，不加载 Project 动态工具，也不能启动媒体业务任务。选择本地 Project 后，提交首页需求才创建该 Project 下的 Conversation 和首个 Turn；仅选择文件夹不得提前创建 Codex Thread。
+
+`agent.listConversations()` 完整分页投影同一受管 Codex home 中非 ephemeral、无 parent 的 CLI、VS Code、Exec 或 App Server 根 Thread；打开或导入本地 Project 后，`agent.listProjectConversations()` 将 `cwd` 位于 Rust `project/context/read.workspacePath` 本身或任意子目录的未绑定历史只读挂在该 Project 下，其余历史进入“最近”。相邻前缀目录不得误归组，子 Agent Thread 不进入项目一级列表。GUI 不提供独立导入弹窗，Renderer 不保存导入注册表或完整 history。`agent.listImportCandidates()` 与 `agent.importConversation({ threadId })` 仅作为 Electron Main 的校验/恢复语义接口；完整历史继续通过 `thread/read`、`thread/turns/list` 和 `thread/items/list` 从 Codex canonical store 读取。未绑定的 Codex Thread 固定只读，不能调用 `turn/start` 或继承外部宿主工具能力。
 
 `conversation/bind` 的唯一键是 `(projectId, conversationId)`；不同 Project 可以同时使用默认 `conversationId=main`。首次绑定必须传 `expectedCodexThreadId=null`。只有 Electron 已从 Codex 收到明确的空 Thread 未持久化错误时，才可传旧 thread id 做 compare-and-swap 替换；普通 resume/read 错误不得触发覆盖。
 

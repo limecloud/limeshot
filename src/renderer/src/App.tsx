@@ -4,18 +4,17 @@ import {
   Folder,
   ListFilter,
   LoaderCircle,
-  PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Send,
+  Settings2,
   Sparkles,
   Square,
   X,
 } from 'lucide-react';
 
 import type {
-  BriefInput,
   BusinessProfile,
   BusinessStatusResult,
   ProjectSummary,
@@ -25,12 +24,14 @@ import type {
 } from '@business/generated';
 import type {
   AgentConversationSummary,
+  AgentProjectConversationSummary,
   AgentEvent,
   AgentInteractionExternalOpenInput,
   AgentInteractionSubmitInput,
   AgentPendingInteractionProjection,
   AgentThreadInspectResult,
   AgentTurnProjection,
+  ConversationTargetInput,
   ConversationStartResult,
 } from '../../shared/desktop';
 import { AppSidebar } from './AppSidebar';
@@ -39,10 +40,9 @@ import { createAgentEventBatcher } from './agentEventBatcher';
 import { applyAgentEvent, runningTurn } from './agentState';
 import { ConversationStatusSurface } from './ConversationStatusSurface';
 import { ConversationTimeline } from './ConversationTimeline';
-import { ExecutionPanel } from './ExecutionPanel';
 import { createTranslator, isTranslationKey, resolveLocale, type TranslationKey } from './i18n';
-import { PlanPanel } from './PlanPanel';
 import { PendingInteractions } from './PendingInteractions';
+import { ProjectOverview } from './ProjectOverview';
 import { WorkspaceHome } from './WorkspaceHome';
 
 type LoadState = 'loading' | 'ready' | 'unavailable';
@@ -60,6 +60,8 @@ export function App() {
   const [mediaTranscodeReady, setMediaTranscodeReady] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [standaloneConversations, setStandaloneConversations] = useState<AgentConversationSummary[]>([]);
+  const [projectConversations, setProjectConversations] = useState<Record<string, AgentProjectConversationSummary[]>>({});
+  const [projectConversationFailedIds, setProjectConversationFailedIds] = useState<string[]>([]);
   const [projectDetail, setProjectDetail] = useState<ProjectReadResult>();
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
   const [projectLoadError, setProjectLoadError] = useState<string>();
@@ -70,7 +72,7 @@ export function App() {
   const [conversationId, setConversationId] = useState(MAIN_CONVERSATION_ID);
   const [openingProject, setOpeningProject] = useState(false);
   const [inspector, setInspector] = useState<'activity' | 'project'>();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(sidebarStartsCollapsed);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [errorMessage, setErrorMessage] = useState<string>();
@@ -88,6 +90,7 @@ export function App() {
   const [sending, setSending] = useState(false);
   const pendingFirstTurn = useRef<{ targetKey: string; text: string } | undefined>(undefined);
   const threadNavigationRequest = useRef(0);
+  const projectContextId = selectedProjectId ?? draftProjectId;
 
   const load = useCallback(async () => {
     setLoadState('loading');
@@ -120,6 +123,35 @@ export function App() {
 
   useEffect(() => {
     let disposed = false;
+    void Promise.allSettled(projects.map((project) => window.limeShot.agent.listProjectConversations({ projectId: project.projectId })))
+      .then((results) => {
+        if (disposed) return;
+        const next: Record<string, AgentProjectConversationSummary[]> = {};
+        const failed: string[] = [];
+        results.forEach((result, index) => {
+          const projectId = projects[index]?.projectId;
+          if (!projectId) return;
+          if (result.status === 'fulfilled') next[projectId] = result.value.conversations;
+          else failed.push(projectId);
+        });
+        setProjectConversations(next);
+        setProjectConversationFailedIds(failed);
+      });
+    return () => { disposed = true; };
+  }, [projects]);
+
+  useEffect(() => {
+    const narrowWindow = window.matchMedia?.('(max-width: 680px)');
+    if (!narrowWindow) return undefined;
+    const onViewportChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setSidebarCollapsed(true);
+    };
+    narrowWindow.addEventListener('change', onViewportChange);
+    return () => narrowWindow.removeEventListener('change', onViewportChange);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
     void window.limeShot.agent.listInteractions()
       .then((pending) => {
         if (!disposed) setInteractions((current) => recoverInteractions(current, pending));
@@ -132,7 +164,7 @@ export function App() {
   }, [t]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
+    if (!projectContextId) {
       setProjectDetail(undefined);
       setPlans([]);
       setProjectLoadError(undefined);
@@ -140,8 +172,8 @@ export function App() {
     }
     let disposed = false;
     void Promise.all([
-      window.limeShot.project.read(selectedProjectId),
-      window.limeShot.plan.list(selectedProjectId),
+      window.limeShot.project.read(projectContextId),
+      window.limeShot.plan.list(projectContextId),
     ])
       .then(([result, planResult]) => {
         if (!disposed) {
@@ -156,7 +188,7 @@ export function App() {
     return () => {
       disposed = true;
     };
-  }, [selectedProjectId, t]);
+  }, [projectContextId, t]);
 
   useEffect(() => {
     threadNavigationRequest.current += 1;
@@ -182,6 +214,21 @@ export function App() {
         if (disposed) return;
         setConversation(result);
         setConversationLoadState(result.access === 'active' ? 'ready' : 'readOnly');
+        if (request.projectId) {
+          const summary: AgentProjectConversationSummary = {
+            projectId: request.projectId,
+            conversationId: result.conversationId,
+            threadId: result.threadId,
+            title: titleFromTurns(result.turns, t('agent.newConversation')),
+            updatedAtEpochMs: Date.now(),
+            origin: 'limeshot',
+            client: 'appServer',
+          };
+          setProjectConversations((current) => ({
+            ...current,
+            [request.projectId!]: [summary, ...(current[request.projectId!] ?? []).filter((item) => item.threadId !== result.threadId)],
+          }));
+        }
         const pending = pendingFirstTurn.current;
         if (pending?.targetKey === targetKey && result.access === 'active') {
           pendingFirstTurn.current = undefined;
@@ -238,6 +285,9 @@ export function App() {
         void window.limeShot.plan.list(selectedProjectId)
           .then((result) => setPlans(result.plans))
           .catch((error) => setProjectLoadError(error instanceof Error ? error.message : t('project.readFailed')));
+        void window.limeShot.agent.listProjectConversations({ projectId: selectedProjectId })
+          .then((result) => setProjectConversations((current) => ({ ...current, [selectedProjectId]: result.conversations })))
+          .catch(() => setProjectConversationFailedIds((current) => current.includes(selectedProjectId) ? current : [...current, selectedProjectId]));
       } else if (event.type === 'turn.completed' && standaloneTarget) {
         void window.limeShot.agent.listConversations().then(setStandaloneConversations).catch(() => undefined);
       }
@@ -249,20 +299,44 @@ export function App() {
   }, [selectedProjectId, standaloneTarget, t]);
 
   const text = (key: string, fallback: string): string => isTranslationKey(key) ? t(key) : fallback;
+  const collapseSidebarOnNarrowWindow = () => {
+    if (window.matchMedia?.('(max-width: 680px)').matches) setSidebarCollapsed(true);
+  };
   const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId);
   const selectedProject = projects.find((project) => project.projectId === selectedProjectId);
-  const selectedProjectDetail = selectedProject && projectDetail?.project.projectId === selectedProject.projectId
+  const projectContext = projects.find((project) => project.projectId === projectContextId);
+  const selectedProjectDetail = projectContext && projectDetail?.project.projectId === projectContext.projectId
     ? projectDetail
     : undefined;
   const activeTurn = conversation ? runningTurn(conversation.turns) : undefined;
   const threadView = threadViews.at(-1);
   const visibleThreadId = threadView?.threadId ?? conversation?.threadId;
   const visibleThreadActivity = visibleThreadId ? activityState.threads[visibleThreadId] : undefined;
+  const projectThreadIds = useMemo(
+    () => new Set(Object.values(projectConversations).flatMap((items) => items.map((item) => item.threadId))),
+    [projectConversations],
+  );
+  const visibleStandaloneConversations = useMemo(
+    () => standaloneConversations.filter((item) => !projectThreadIds.has(item.threadId)),
+    [projectThreadIds, standaloneConversations],
+  );
   const runtimeReadOnly = visibleThreadActivity?.lifecycle === 'archived'
     || visibleThreadActivity?.lifecycle === 'deleted'
     || visibleThreadActivity?.lifecycle === 'closed'
     || visibleThreadActivity?.status?.type === 'systemError';
-  const conversationTitle = titleFromTurns(conversation?.turns ?? [], t('agent.newConversation'));
+  const conversationTitle = visibleThreadActivity?.name?.trim() || titleFromTurns(conversation?.turns ?? [], t('agent.newConversation'));
+  const activeProjectConversation: AgentProjectConversationSummary | undefined = selectedProject && conversation
+    ? {
+        projectId: selectedProject.projectId,
+        conversationId: conversation.conversationId,
+        threadId: conversation.threadId,
+        title: conversationTitle,
+        updatedAtEpochMs: selectedProject.updatedAtEpochMs,
+        origin: 'limeshot',
+        client: 'appServer',
+        workspaceLabel: selectedProject.workspaceName,
+      }
+    : undefined;
   const canSend = Boolean(
     (selectedProject || standaloneTarget)
     && conversation
@@ -283,14 +357,22 @@ export function App() {
   const openProject = (projectId: string) => {
     const project = projects.find((item) => item.projectId === projectId);
     if (project) setSelectedProfileId(project.profileId);
+    threadNavigationRequest.current += 1;
     pendingFirstTurn.current = undefined;
     setStandaloneTarget(undefined);
-    setDraftProjectId(undefined);
+    setDraftProjectId(projectId);
     setSending(false);
-    setSelectedProjectId(projectId);
+    setSelectedProjectId(undefined);
     setConversationId(MAIN_CONVERSATION_ID);
+    setConversation(undefined);
+    setConversationLoadState('idle');
+    setThreadViews([]);
+    setOpeningThreadId(undefined);
+    setThreadViewError(undefined);
     setInspector(undefined);
+    setAgentError(undefined);
     setComposerText('');
+    collapseSidebarOnNarrowWindow();
   };
 
   const openStandalone = (threadId: string) => {
@@ -301,6 +383,124 @@ export function App() {
     setInspector(undefined);
     setSending(false);
     setComposerText('');
+    collapseSidebarOnNarrowWindow();
+  };
+
+  const openProjectConversation = (projectId: string, nextConversationId: string) => {
+    const project = projects.find((item) => item.projectId === projectId);
+    if (project) setSelectedProfileId(project.profileId);
+    pendingFirstTurn.current = undefined;
+    setStandaloneTarget(undefined);
+    setDraftProjectId(undefined);
+    setSending(false);
+    setSelectedProjectId(projectId);
+    setConversationId(nextConversationId);
+    setInspector(undefined);
+    setComposerText('');
+    collapseSidebarOnNarrowWindow();
+  };
+
+  const renameConversation = async (target: ConversationTargetInput, title: string) => {
+    await window.limeShot.agent.renameConversation({ ...target, title });
+    const threadId = target.threadId;
+    setActivityState((current) => applyAgentActivityEvent(current, {
+      type: 'thread.context.updated',
+      threadId,
+      patch: { name: title },
+    }));
+    setStandaloneConversations((current) => current.map((item) => item.threadId === threadId ? { ...item, title } : item));
+    if (target.projectId) {
+      setProjectConversations((current) => ({
+        ...current,
+        [target.projectId!]: (current[target.projectId!] ?? []).map((item) => item.threadId === threadId ? { ...item, title } : item),
+      }));
+    }
+  };
+
+  const removeConversationFromRenderer = (threadId: string) => {
+    setStandaloneConversations((current) => current.filter((item) => item.threadId !== threadId));
+    setProjectConversations((current) => Object.fromEntries(Object.entries(current).map(([projectId, items]) => [
+      projectId,
+      items.filter((item) => item.threadId !== threadId),
+    ])));
+    if (conversation?.threadId !== threadId) return;
+    pendingFirstTurn.current = undefined;
+    setConversation(undefined);
+    setThreadViews([]);
+    setSending(false);
+    setComposerText('');
+    if (selectedProjectId) {
+      setDraftProjectId(selectedProjectId);
+      setSelectedProjectId(undefined);
+    } else {
+      setStandaloneTarget(undefined);
+    }
+  };
+
+  const archiveConversation = async (target: ConversationTargetInput) => {
+    await window.limeShot.agent.archiveConversation(target);
+    removeConversationFromRenderer(target.threadId);
+  };
+
+  const deleteConversation = async (target: ConversationTargetInput) => {
+    await window.limeShot.agent.deleteConversation(target);
+    removeConversationFromRenderer(target.threadId);
+  };
+
+  const renameProject = async (projectId: string, name: string) => {
+    const result = await window.limeShot.project.rename({ projectId, name });
+    setProjects((current) => current.map((project) => project.projectId === projectId ? result.project : project));
+    setProjectDetail((current) => current?.project.projectId === projectId ? { ...current, project: result.project } : current);
+  };
+
+  const revealProject = (projectId: string) => window.limeShot.project.reveal(projectId);
+
+  const markProjectConversationsRead = async (projectId: string) => {
+    const result = await window.limeShot.agent.listProjectConversations({ projectId });
+    setProjectConversations((current) => ({ ...current, [projectId]: result.conversations }));
+    return result.conversations.map((item) => item.threadId);
+  };
+
+  const revealConversation = async (target: ConversationTargetInput) => {
+    await window.limeShot.agent.revealConversation(target);
+  };
+
+  const copyConversationWorkingDirectory = async (target: ConversationTargetInput) => {
+    await window.limeShot.agent.copyConversationWorkingDirectory(target);
+  };
+
+  const copyConversationSessionId = async (target: ConversationTargetInput) => {
+    await window.limeShot.agent.copyConversationSessionId(target);
+  };
+
+  const archiveProjectConversations = async (projectId: string) => {
+    const result = await window.limeShot.agent.archiveProjectConversations({ projectId });
+    setProjectConversations((current) => ({
+      ...current,
+      [projectId]: (current[projectId] ?? []).filter((item) => !result.archivedThreadIds.includes(item.threadId)),
+    }));
+    if (conversation && result.archivedThreadIds.includes(conversation.threadId)) removeConversationFromRenderer(conversation.threadId);
+    if (result.failedThreadIds.length > 0) throw new Error('部分项目对话归档失败');
+  };
+
+  const removeProject = async (projectId: string) => {
+    await window.limeShot.project.archive({ projectId });
+    setProjects((current) => current.filter((project) => project.projectId !== projectId));
+    setProjectConversations((current) => {
+      const next = { ...current };
+      delete next[projectId];
+      return next;
+    });
+    if (selectedProjectId === projectId || draftProjectId === projectId) {
+      pendingFirstTurn.current = undefined;
+      setSelectedProjectId(undefined);
+      setDraftProjectId(undefined);
+      setStandaloneTarget(undefined);
+      setConversation(undefined);
+      setThreadViews([]);
+      setInspector(undefined);
+      setComposerText('');
+    }
   };
 
   const openProjectDirectory = async () => {
@@ -339,16 +539,18 @@ export function App() {
   };
 
   const startNewConversation = () => {
+    const projectContext = selectedProjectId ?? draftProjectId;
     pendingFirstTurn.current = undefined;
     setSending(false);
     setSelectedProjectId(undefined);
-    setDraftProjectId(undefined);
+    setDraftProjectId(projectContext);
     setStandaloneTarget(undefined);
     setConversation(undefined);
     setConversationId(MAIN_CONVERSATION_ID);
     setInspector(undefined);
     setAgentError(undefined);
     setComposerText('');
+    collapseSidebarOnNarrowWindow();
   };
 
   const sendTurn = async () => {
@@ -425,38 +627,90 @@ export function App() {
     await window.limeShot.agent.openInteractionExternal(input);
   };
 
+  const projectInspectorSurface = projectContext && inspector === 'project' ? (
+    <aside className="workspace-inspector project-inspector" aria-label={t('project.details')}>
+      <header>
+        <div><strong>{projectContext.name}</strong><span>{projectContext.workspaceName}</span></div>
+        <button type="button" onClick={() => setInspector(undefined)} title={t('project.closeDetails')}><X size={16} aria-hidden="true" /></button>
+      </header>
+      <div className="workspace-inspector-body project-inspector-body">
+        {selectedProjectDetail ? (
+          <ProjectOverview
+            detail={selectedProjectDetail}
+            plans={plans}
+            mediaProbeReady={mediaProbeReady}
+            mediaTranscodeReady={mediaTranscodeReady}
+            onBriefUpdated={(brief) => setProjectDetail((current) => current ? { ...current, brief } : current)}
+            onPlanUpdated={(plan) => setPlans((current) => current.map((item) => item.planId === plan.planId ? plan : item))}
+            t={t}
+          />
+        ) : projectLoadError ? <p className="project-read-error" role="alert">{projectLoadError}</p> : <p className="project-loading">{t('project.loading')}</p>}
+      </div>
+    </aside>
+  ) : null;
+
   return (
     <main className="app-shell" data-testid="app-shell" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}>
       {!sidebarCollapsed ? (
-        <AppSidebar
-          projects={projects}
-          conversations={standaloneConversations}
-          selectedProjectId={selectedProjectId}
-          selectedThreadId={standaloneTarget?.threadId}
-          conversationTitle={conversationTitle}
-          searchOpen={searchOpen}
-          searchQuery={searchQuery}
-          footer={<RuntimeStatus loadState={loadState} runtime={runtime} errorMessage={errorMessage} onRetry={load} t={t} />}
-          onHome={startNewConversation}
-          onNewConversation={startNewConversation}
-          onConversationSelect={openStandalone}
-          onSearchOpenChange={setSearchOpen}
-          onSearchQueryChange={setSearchQuery}
-          onProjectSelect={openProject}
-          onProjectEdit={(projectId) => {
-            openProject(projectId);
-            setInspector('project');
-          }}
-          t={t}
-        />
+        <>
+          <AppSidebar
+            projects={projects}
+            projectConversations={projectConversations}
+            projectConversationFailedIds={projectConversationFailedIds}
+            conversations={visibleStandaloneConversations}
+            selectedProjectId={selectedProjectId ?? draftProjectId}
+            activeProjectId={selectedProjectId}
+            selectedThreadId={standaloneTarget?.threadId}
+            conversationTitle={conversationTitle}
+            activeProjectConversation={activeProjectConversation}
+            searchOpen={searchOpen}
+            searchQuery={searchQuery}
+            footer={(
+              <RuntimeStatus
+                loadState={loadState}
+                runtime={runtime}
+                profileLabel={text(selectedProfile?.nameKey ?? '', selectedProfile?.profileId ?? 'general')}
+                errorMessage={errorMessage}
+                onRetry={load}
+                t={t}
+              />
+            )}
+            onCollapse={() => setSidebarCollapsed(true)}
+            onNewConversation={startNewConversation}
+            onConversationSelect={openStandalone}
+            onSearchOpenChange={setSearchOpen}
+            onSearchQueryChange={setSearchQuery}
+            onProjectSelect={openProject}
+            onProjectConversationSelect={openProjectConversation}
+            onProjectEdit={(projectId) => {
+              openProject(projectId);
+              setInspector('project');
+            }}
+            onProjectReveal={revealProject}
+            onProjectMarkAllRead={markProjectConversationsRead}
+            onProjectRename={renameProject}
+            onProjectArchiveConversations={archiveProjectConversations}
+            onProjectRemove={removeProject}
+            onConversationRename={renameConversation}
+            onConversationArchive={archiveConversation}
+            onConversationDelete={deleteConversation}
+            onConversationReveal={revealConversation}
+            onConversationCopyWorkingDirectory={copyConversationWorkingDirectory}
+            onConversationCopySessionId={copyConversationSessionId}
+            t={t}
+          />
+          <button className="sidebar-scrim" type="button" aria-label={t('nav.collapseSidebar')} onClick={() => setSidebarCollapsed(true)} />
+        </>
       ) : null}
 
-      <section className="workspace">
-        <header className="workspace-toolbar" data-testid="workspace-toolbar">
-          <button type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>
-            {sidebarCollapsed ? <PanelLeftOpen size={15} aria-hidden="true" /> : <PanelLeftClose size={15} aria-hidden="true" />}
-          </button>
-          <span className="workspace-toolbar-title">{selectedProject || standaloneTarget ? conversationTitle : t('home.workspaceTitle')}</span>
+      <section className="workspace main-surface">
+        <header className="workspace-toolbar" data-home={!selectedProject && !standaloneTarget ? 'true' : 'false'} data-testid="workspace-toolbar">
+          {sidebarCollapsed ? (
+            <button type="button" onClick={() => setSidebarCollapsed(false)} title={t('nav.expandSidebar')}>
+              <PanelLeftOpen size={15} aria-hidden="true" />
+            </button>
+          ) : null}
+          {selectedProject || standaloneTarget ? <span className="workspace-toolbar-title">{conversationTitle}</span> : null}
           <span className="workspace-toolbar-spacer" />
           {selectedProject || standaloneTarget ? (
             <button
@@ -564,44 +818,27 @@ export function App() {
                   />
                 </div>
               </aside>
-            ) : selectedProject && inspector === 'project' ? (
-              <aside className="workspace-inspector project-inspector" aria-label={t('project.details')}>
-                <header>
-                  <div><strong>{selectedProject.name}</strong><span>{selectedProject.workspaceName}</span></div>
-                  <button type="button" onClick={() => setInspector(undefined)} title={t('project.closeDetails')}><X size={16} aria-hidden="true" /></button>
-                </header>
-                <div className="workspace-inspector-body project-inspector-body">
-                  {selectedProjectDetail ? (
-                    <ProjectOverview
-                      detail={selectedProjectDetail}
-                      plans={plans}
-                      mediaProbeReady={mediaProbeReady}
-                      mediaTranscodeReady={mediaTranscodeReady}
-                      onBriefUpdated={(brief) => setProjectDetail((current) => current ? { ...current, brief } : current)}
-                      onPlanUpdated={(plan) => setPlans((current) => current.map((item) => item.planId === plan.planId ? plan : item))}
-                      t={t}
-                    />
-                  ) : projectLoadError ? <p className="project-read-error" role="alert">{projectLoadError}</p> : <p className="project-loading">{t('project.loading')}</p>}
-                </div>
-              </aside>
-            ) : null}
+            ) : projectInspectorSurface}
           </div>
         ) : (
-          <WorkspaceHome
-            profiles={profiles}
-            projects={projects}
-            selectedProfileId={selectedProfileId}
-            selectedProjectId={draftProjectId}
-            composerText={composerText}
-            submitting={openingProject}
-            onProfileSelect={setSelectedProfileId}
-            onComposerTextChange={setComposerText}
-            onProjectSelect={setDraftProjectId}
-            onProjectBrowse={() => void openProjectDirectory()}
-            onSubmit={beginFromHome}
-            text={text}
-            t={t}
-          />
+          <div className="project-conversation-layout" data-inspector={projectInspectorSurface ? 'project' : 'closed'}>
+            <WorkspaceHome
+              profiles={profiles}
+              projects={projects}
+              selectedProfileId={selectedProfileId}
+              selectedProjectId={draftProjectId}
+              composerText={composerText}
+              submitting={openingProject}
+              onProfileSelect={setSelectedProfileId}
+              onComposerTextChange={setComposerText}
+              onProjectSelect={setDraftProjectId}
+              onProjectBrowse={() => void openProjectDirectory()}
+              onSubmit={beginFromHome}
+              text={text}
+              t={t}
+            />
+            {projectInspectorSurface}
+          </div>
         )}
       </section>
 
@@ -615,6 +852,10 @@ function titleFromTurns(turns: AgentTurnProjection[], fallback: string): string 
   const firstUserMessage = turns.flatMap((turn) => turn.items).find((item) => item.kind === 'user')?.text.trim();
   if (!firstUserMessage) return fallback;
   return firstUserMessage.length > 28 ? `${firstUserMessage.slice(0, 28)}...` : firstUserMessage;
+}
+
+function sidebarStartsCollapsed(): boolean {
+  return window.matchMedia?.('(max-width: 680px)').matches ?? false;
 }
 
 function upsertInteraction(current: AgentPendingInteractionProjection[], next: AgentPendingInteractionProjection): AgentPendingInteractionProjection[] {
@@ -642,110 +883,16 @@ function setInteractionStatus(
     : interaction);
 }
 
-interface ProjectOverviewProps {
-  detail: ProjectReadResult;
-  plans: ProductionPlan[];
-  mediaProbeReady: boolean;
-  mediaTranscodeReady: boolean;
-  onBriefUpdated: (brief: ProjectReadResult['brief']) => void;
-  onPlanUpdated: (plan: ProductionPlan) => void;
-  t: (key: TranslationKey) => string;
-}
-
-function ProjectOverview({ detail, plans, mediaProbeReady, mediaTranscodeReady, onBriefUpdated, onPlanUpdated, t }: ProjectOverviewProps) {
-  const statusKey = `brief.${detail.brief.completeness}` as TranslationKey;
-  return (
-    <section className="project-overview" data-testid="project-overview">
-      <div className="section-heading">
-        <h2>{t('project.overview')}</h2>
-        <span data-state={detail.brief.completeness}>{t(statusKey)}</span>
-      </div>
-      <div className="project-overview-facts">
-        <div><span>{t('project.profile')}</span><strong>{detail.project.profileId}</strong></div>
-        <div><span>{t('project.briefVersion')}</span><strong>v{detail.brief.version}</strong></div>
-        <div><span>{t('project.missingFields')}</span><strong>{detail.brief.missingFields.length}</strong></div>
-        <div><span>{t('project.conflicts')}</span><strong>{detail.brief.conflicts.length}</strong></div>
-      </div>
-      <BriefEditor brief={detail.brief} onUpdated={onBriefUpdated} t={t} />
-      <PlanPanel plans={plans} onPlanUpdated={onPlanUpdated} t={t} />
-      <ExecutionPanel
-        projectId={detail.project.projectId}
-        plans={plans}
-        mediaProbeReady={mediaProbeReady}
-        mediaTranscodeReady={mediaTranscodeReady}
-        t={t}
-      />
-    </section>
-  );
-}
-
-interface BriefEditorProps {
-  brief: ProjectReadResult['brief'];
-  onUpdated: (brief: ProjectReadResult['brief']) => void;
-  t: (key: TranslationKey) => string;
-}
-
-function BriefEditor({ brief, onUpdated, t }: BriefEditorProps) {
-  const [content, setContent] = useState<BriefInput>(brief.content);
-  const [saving, setSaving] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string>();
-
-  useEffect(() => {
-    setContent(brief.content);
-    setErrorMessage(undefined);
-  }, [brief]);
-
-  const update = <K extends keyof BriefInput>(key: K, value: BriefInput[K]) => {
-    setContent((current) => ({ ...current, [key]: value }) as BriefInput);
-  };
-
-  const save = async () => {
-    setSaving(true);
-    setErrorMessage(undefined);
-    try {
-      const result = await window.limeShot.project.updateBrief({
-        projectId: brief.projectId,
-        expectedVersion: brief.version,
-        brief: content,
-      });
-      onUpdated(result.brief);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : t('project.briefSaveFailed'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <form className="brief-editor" onSubmit={(event) => {
-      event.preventDefault();
-      void save();
-    }}>
-      <h3>{t('project.brief')}</h3>
-      <div className="brief-fields">
-        <label><span>{t('project.subject')}</span><input value={content.subject} onChange={(event) => update('subject', event.target.value)} /></label>
-        <label><span>{t('project.audience')}</span><input value={content.audience} onChange={(event) => update('audience', event.target.value)} /></label>
-        <label><span>{t('project.platform')}</span><input value={content.platform} onChange={(event) => update('platform', event.target.value)} /></label>
-        <label><span>{t('project.duration')}</span><input type="number" min="1" value={content.targetDurationSeconds ?? ''} onChange={(event) => update('targetDurationSeconds', event.target.value ? Number(event.target.value) : null)} /></label>
-        <label><span>{t('project.aspectRatio')}</span><select value={content.aspectRatio} onChange={(event) => update('aspectRatio', event.target.value)}><option value="">{t('project.notSet')}</option><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="4:3">4:3</option></select></label>
-        <label><span>{t('project.language')}</span><input value={content.language} onChange={(event) => update('language', event.target.value)} /></label>
-        <label className="brief-field-wide"><span>{t('project.style')}</span><input value={content.style} onChange={(event) => update('style', event.target.value)} /></label>
-      </div>
-      {errorMessage ? <p className="inline-error" role="alert">{errorMessage}</p> : null}
-      <div className="brief-editor-actions"><button className="primary-command" type="submit" disabled={saving}>{saving ? t('project.savingBrief') : t('project.saveBrief')}</button></div>
-    </form>
-  );
-}
-
 interface RuntimeStatusProps {
   loadState: LoadState;
   runtime?: BusinessStatusResult;
+  profileLabel: string;
   errorMessage?: string;
   onRetry: () => Promise<void>;
   t: (key: TranslationKey) => string;
 }
 
-function RuntimeStatus({ loadState, runtime, errorMessage, onRetry, t }: RuntimeStatusProps) {
+function RuntimeStatus({ loadState, runtime, profileLabel, errorMessage, onRetry, t }: RuntimeStatusProps) {
   const label = loadState === 'ready'
     ? t('runtime.ready')
     : loadState === 'loading'
@@ -758,16 +905,13 @@ function RuntimeStatus({ loadState, runtime, errorMessage, onRetry, t }: Runtime
       data-testid="runtime-status"
       data-state={loadState}
       data-runtime-source="business-service"
-      title={errorMessage}
+      title={errorMessage ?? (runtime ? `${label} · ${t('runtime.pid')} ${runtime.serverPid} · ${t('runtime.protocol')} ${runtime.protocolVersion}` : label)}
+      aria-label={label}
       aria-live="polite"
     >
+      <Settings2 className="runtime-settings-icon" size={14} aria-hidden="true" />
+      <span className="runtime-label">{profileLabel}</span>
       <span className="runtime-dot" aria-hidden="true" />
-      <span className="runtime-copy">
-        <strong>{label}</strong>
-        {runtime ? (
-          <small>{t('runtime.pid')} {runtime.serverPid} · {t('runtime.protocol')} {runtime.protocolVersion}</small>
-        ) : null}
-      </span>
       {loadState === 'unavailable' ? (
         <button type="button" className="runtime-retry" onClick={() => void onRetry()} title={t('runtime.retry')}>
           <ChevronRight size={16} aria-hidden="true" />

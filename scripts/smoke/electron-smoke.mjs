@@ -11,6 +11,10 @@ import { _electron as electron } from 'playwright';
 const root = resolve(import.meta.dirname, '../..');
 const businessBinary = resolve(root, 'rust', 'target', 'release', process.platform === 'win32' ? 'business-server.exe' : 'business-server');
 if (!existsSync(businessBinary)) throw new Error(`缺少 release Rust companion: ${businessBinary}`);
+const businessProtocol = JSON.parse(await readFile(resolve(root, 'schemas', 'business', 'protocol.json'), 'utf8'));
+if (!Number.isInteger(businessProtocol.protocolVersion) || businessProtocol.protocolVersion <= 0) {
+  throw new Error('Business protocol schema 缺少有效的 protocolVersion');
+}
 
 const manifest = JSON.parse(await readFile(resolve(root, 'resources', 'codex', 'manifest.v1.json'), 'utf8'));
 const platformKey = currentPlatformKey();
@@ -72,22 +76,36 @@ try {
   application = await launchElectron(electronLaunchOptions);
   let page = await application.firstWindow();
   await page.locator('[data-testid="runtime-status"][data-state="ready"]').waitFor({ timeout: 20_000 });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.locator('.home-profile-context').click();
   const foundationEvidence = await page.evaluate(() => ({
     hasPreload: Boolean(window.limeShot?.foundation?.read),
     profileCount: document.querySelectorAll('[data-testid^="profile-"]').length,
   }));
+  await page.getByTestId('profile-general').click();
   if (screenshotDir) {
     await mkdir(screenshotDir, { recursive: true });
     await page.screenshot({ path: join(screenshotDir, '01-home.png') });
   }
   await page.locator('.project-nav-item', { hasText: projectName }).click();
+  await page.getByTestId('home-workspace').waitFor({ timeout: 20_000 });
+  const projectRowOpensHome = await page.evaluate((expectedProjectName) => (
+    !document.querySelector('[data-testid="agent-panel"]')
+      && document.querySelector('[data-testid="home-project-context"]')?.textContent?.includes(expectedProjectName) === true
+  ), projectName);
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '01-project-home.png') });
+  const homeComposer = page.locator('.home-composer textarea');
+  await homeComposer.fill('Read this project, then confirm the result.');
+  await homeComposer.press('Enter');
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
+  const projectConversationId = await page.getByTestId('agent-panel').getAttribute('data-conversation-id');
+  const projectThreadId = await page.getByTestId('agent-panel').getAttribute('data-thread-id');
+  if (!projectConversationId || !projectThreadId) throw new Error('Project conversation identity is missing from the GUI projection');
 
   const composer = page.locator('.composer-field textarea');
-  await composer.fill('Read this project, then confirm the result.');
-  await composer.press('Enter');
   await page.locator('.agent-item[data-item-type="dynamicToolCall"]', { hasText: 'project_read' }).waitFor({ state: 'attached', timeout: 60_000 });
-  await page.locator('.agent-item[data-item-type="dynamicToolCall"]', { hasText: 'plan_create' }).waitFor({ state: 'attached', timeout: 60_000 });
+  await page.locator('.agent-item[data-item-type="dynamicToolCall"][data-status="completed"]', { hasText: 'plan_create' }).waitFor({ state: 'attached', timeout: 60_000 });
+  await page.locator('.agent-item[data-item-type="dynamicToolCall"][data-status="failed"]', { hasText: 'plan_create' }).waitFor({ state: 'attached', timeout: 60_000 });
   const activityTools = (await page.locator('.agent-item[data-item-type="dynamicToolCall"]').allTextContents()).join('\n');
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: /^Gate B complete$/ }).waitFor({ timeout: 60_000 });
   await page.locator('.agent-turn[data-status="completed"]').waitFor({ timeout: 60_000 });
@@ -118,6 +136,63 @@ try {
   await searchItem.waitFor({ timeout: 60_000 });
   await shellItem.waitFor({ timeout: 60_000 });
   await imageItem.waitFor({ timeout: 60_000 });
+  const imageEventTarget = await page.evaluate(() => {
+    const panel = document.querySelector('[data-testid="agent-panel"]');
+    const item = document.querySelector('.agent-item[data-item-type="imageGeneration"]');
+    const turn = item?.closest('.agent-turn');
+    return {
+      threadId: panel?.getAttribute('data-thread-id') ?? '',
+      turnId: turn?.getAttribute('data-turn-id') ?? '',
+      itemId: item?.getAttribute('data-item-id') ?? '',
+      savedPath: item?.querySelector('code')?.textContent ?? '',
+    };
+  });
+  if (Object.values(imageEventTarget).some((value) => !value)) {
+    throw new Error(`Gate B image generation target is incomplete: ${JSON.stringify(imageEventTarget)}`);
+  }
+  await application.evaluate(({ BrowserWindow }, target) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) throw new Error('Gate B BrowserWindow is unavailable');
+    window.webContents.send('agent:event', {
+      type: 'item.updated',
+      threadId: target.threadId,
+      turnId: target.turnId,
+      item: {
+        id: target.itemId,
+        type: 'imageGeneration',
+        kind: 'activity',
+        title: 'Image generation',
+        text: 'LimeShot projection image',
+        status: 'inProgress',
+        result: '',
+        revisedPrompt: 'LimeShot projection image',
+      },
+    });
+  }, imageEventTarget);
+  await page.locator('.agent-item[data-item-type="imageGeneration"] > summary').click();
+  await page.locator('.agent-item[data-item-type="imageGeneration"][data-status="inProgress"] .agent-media-loading').waitFor({ timeout: 20_000 });
+  const imageGenerationLoadingVisible = true;
+  await application.evaluate(({ BrowserWindow }, target) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) throw new Error('Gate B BrowserWindow is unavailable');
+    window.webContents.send('agent:event', {
+      type: 'item.updated',
+      threadId: target.threadId,
+      turnId: target.turnId,
+      item: {
+        id: target.itemId,
+        type: 'imageGeneration',
+        kind: 'activity',
+        title: 'Image generation',
+        text: 'LimeShot projection image',
+        status: 'completed',
+        result: '',
+        revisedPrompt: 'LimeShot projection image',
+        savedPath: target.savedPath,
+      },
+    });
+  }, imageEventTarget);
+  await page.locator('.agent-item[data-item-type="imageGeneration"][data-status="completed"]').waitFor({ timeout: 20_000 });
 
   const approval = page.locator('.interaction-surface[data-status="pending"]');
   await approval.waitFor({ timeout: 60_000 });
@@ -125,6 +200,7 @@ try {
   if (!['commandApproval', 'fileApproval'].includes(approvalKind)) {
     throw new Error(`Gate B expected command/file approval, received ${approvalKind}`);
   }
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-approval-request.png') });
   await approval.getByRole('button', { name: '允许一次' }).click();
   const diffItem = page.locator('.agent-item[data-item-type="fileChange"][data-status="completed"]', { hasText: 'gate-b-projection.txt' });
   await diffItem.waitFor({ timeout: 60_000 });
@@ -136,30 +212,185 @@ try {
   await mcpElicitation.waitFor({ timeout: 60_000 });
   await mcpElicitation.getByRole('button', { name: '提交' }).click();
   await page.locator('.agent-item[data-item-type="mcpToolCall"][data-status="completed"]', { hasText: 'MCP Gate B echo' }).waitFor({ timeout: 60_000 });
+  const mcpEventTarget = await page.evaluate(() => {
+    const panel = document.querySelector('[data-testid="agent-panel"]');
+    const item = document.querySelector('.agent-item[data-item-type="mcpToolCall"]');
+    const turn = item?.closest('.agent-turn');
+    return {
+      threadId: panel?.getAttribute('data-thread-id') ?? '',
+      turnId: turn?.getAttribute('data-turn-id') ?? '',
+      itemId: item?.getAttribute('data-item-id') ?? '',
+    };
+  });
+  if (Object.values(mcpEventTarget).some((value) => !value)) {
+    throw new Error(`Gate B MCP progress target is incomplete: ${JSON.stringify(mcpEventTarget)}`);
+  }
+  await application.evaluate(({ BrowserWindow }, target) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) throw new Error('Gate B BrowserWindow is unavailable');
+    for (let index = 1; index <= 10; index += 1) {
+      window.webContents.send('agent:event', {
+        type: 'item.progress',
+        threadId: target.threadId,
+        turnId: target.turnId,
+        itemId: target.itemId,
+        message: `MCP progress ${index}`,
+      });
+    }
+  }, mcpEventTarget);
+  await mcpItem.locator(':scope > summary').click();
+  await page.waitForFunction(() => document.querySelectorAll('.agent-item[data-item-type="mcpToolCall"] .agent-progress-list > li').length === 8);
+  const mcpProjectionEvidence = await page.evaluate(() => {
+    const item = document.querySelector('.agent-item[data-item-type="mcpToolCall"]');
+    const resource = item?.querySelector('.agent-resource');
+    const toolText = item?.querySelector('.agent-tool-text');
+    const toolTextStyle = toolText ? getComputedStyle(toolText) : null;
+    const progress = Array.from(item?.querySelectorAll('.agent-progress-list > li') ?? [], (node) => node.textContent);
+    return {
+      sourceVisible: item?.querySelector(':scope > summary')?.textContent?.includes('gate_b/echo_tool') === true,
+      resourceNameVisible: resource?.textContent?.includes('Projection resource') === true,
+      resourceUriVisible: resource?.textContent?.includes('mcp://gate-b/projection') === true,
+      progressLastEight: JSON.stringify(progress) === JSON.stringify(Array.from({ length: 8 }, (_, index) => `MCP progress ${index + 3}`)),
+      toolTextPreservesEnds: toolText?.textContent?.includes('MCP-TEXT-START') === true && toolText.textContent.includes('MCP-TEXT-END'),
+      toolTextBounded: Boolean(toolText && toolText.textContent && toolText.textContent.length < 9_000 && toolTextStyle?.maxHeight === '220px' && toolTextStyle.overflowY === 'auto'),
+    };
+  });
+  await application.evaluate(({ BrowserWindow }, target) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) throw new Error('Gate B BrowserWindow is unavailable');
+    const sendItem = (item) => window.webContents.send('agent:event', {
+      type: 'item.updated',
+      threadId: target.threadId,
+      turnId: target.turnId,
+      item,
+    });
+    sendItem({
+      id: 'gate-b-hook-feedback',
+      type: 'hookPrompt',
+      kind: 'user',
+      title: 'Hook feedback',
+      text: 'Gate B hook feedback',
+      fragments: [{ text: 'Gate B hook feedback', hookRunId: 'gate-b-hook' }],
+    });
+    sendItem({
+      id: 'gate-b-collab',
+      type: 'collabAgentToolCall',
+      kind: 'activity',
+      title: 'Created agent',
+      text: 'Inspect the projection boundary',
+      status: 'completed',
+      tool: 'spawnAgent',
+      senderThreadId: target.threadId,
+      receiverThreadIds: ['gate-b-child-thread'],
+      prompt: 'Inspect the projection boundary',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      agents: [{ threadId: 'gate-b-child-thread', status: 'completed', message: 'Projection verified' }],
+    });
+    sendItem({
+      id: 'gate-b-subagent',
+      type: 'subAgentActivity',
+      kind: 'activity',
+      title: 'Sub-agent activity',
+      text: 'reviewer',
+      activity: 'started',
+      agentThreadId: 'gate-b-child-thread',
+      agentPath: 'reviewer',
+    });
+    sendItem({ id: 'gate-b-compaction-manual', type: 'contextCompaction', kind: 'system', title: 'Context compaction', text: '', status: 'inProgress', source: 'manual' });
+    sendItem({ id: 'gate-b-compaction-auto', type: 'contextCompaction', kind: 'system', title: 'Context compaction', text: '', status: 'completed', source: 'automatic' });
+    sendItem({ id: 'gate-b-wait', type: 'collabAgentToolCall', kind: 'activity', title: 'Wait', text: '', status: 'completed', tool: 'wait', senderThreadId: target.threadId, receiverThreadIds: [], agents: [] });
+    sendItem({ id: 'gate-b-sleep', type: 'sleep', kind: 'activity', title: 'Sleep', text: '100 ms', status: 'completed', waitMs: 100 });
+    sendItem({ id: 'gate-b-review-enter', type: 'enteredReviewMode', kind: 'system', title: 'Review', text: 'hidden review', review: 'hidden review' });
+    sendItem({ id: 'gate-b-review-exit', type: 'exitedReviewMode', kind: 'system', title: 'Review', text: 'hidden review', review: 'hidden review' });
+    sendItem({ id: 'gate-b-unknown', type: 'unknown', kind: 'system', title: 'Unknown', text: '', sourceType: 'futureItem', fields: ['privateField'] });
+  }, mcpEventTarget);
+  await page.locator('[data-item-id="gate-b-hook-feedback"][data-kind="user"] .agent-user-status', { hasText: 'Hook 反馈' }).waitFor({ timeout: 20_000 });
+  await page.locator('[data-item-id="gate-b-collab"] > summary', { hasText: '已创建' }).waitFor({ timeout: 20_000 });
+  await page.locator('[data-item-id="gate-b-subagent"]', { hasText: 'reviewer 开始工作' }).waitFor({ timeout: 20_000 });
+  await page.locator('[data-item-id="gate-b-compaction-manual"][data-status="inProgress"]', { hasText: '正在压缩上下文' }).waitFor({ timeout: 20_000 });
+  const manualCompactionRunningVisible = true;
+  await application.evaluate(({ BrowserWindow }, target) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) throw new Error('Gate B BrowserWindow is unavailable');
+    window.webContents.send('agent:event', {
+      type: 'item.updated',
+      threadId: target.threadId,
+      turnId: target.turnId,
+      item: { id: 'gate-b-compaction-manual', type: 'contextCompaction', kind: 'system', title: 'Context compaction', text: '', status: 'completed', source: 'manual' },
+    });
+  }, mcpEventTarget);
+  await page.locator('[data-item-id="gate-b-compaction-manual"][data-status="completed"]', { hasText: '上下文已压缩' }).waitFor({ timeout: 20_000 });
+  await page.locator('[data-item-id="gate-b-collab"] > summary').click();
+  await page.locator('[data-item-id="gate-b-collab"] .agent-agent-list button', { hasText: 'gate-b-child-thread' }).waitFor({ timeout: 20_000 });
   const mcpElicitationVisible = true;
   await page.locator('.interaction-surface[data-kind="userInput"][data-status="pending"]').waitFor({ timeout: 60_000 });
   const userInputInteraction = page.locator('.interaction-surface[data-kind="userInput"][data-status="pending"]');
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-user-input-request.png') });
+  await page.setViewportSize({ width: 420, height: 900 });
+  await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="true"]').waitFor({ timeout: 20_000 });
+  const userInputNarrowEvidence = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const interaction = document.querySelector('.interaction-surface[data-kind="userInput"]');
+    const bounds = interaction?.getBoundingClientRect();
+    return {
+      noHorizontalOverflow: document.documentElement.scrollWidth <= viewportWidth + 1,
+      interactionContained: Boolean(bounds && bounds.left >= -1 && bounds.right <= viewportWidth + 1),
+    };
+  });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-user-input-request-420.png') });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await userInputInteraction.getByRole('radio', { name: /Yes \(Recommended\)/ }).check();
-  await userInputInteraction.locator('fieldset').nth(1).locator('.interaction-other input').check();
+  await userInputInteraction.getByRole('button', { name: '下一题' }).click();
+  await userInputInteraction.locator('.interaction-other input').check();
   await userInputInteraction.locator('input[type="password"]').fill('gate-b-secret-value');
   await userInputInteraction.getByRole('button', { name: '提交' }).click();
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Projection Gate B complete' }).waitFor({ timeout: 60_000 });
   await page.locator('.agent-turn[data-status="completed"]', { hasText: 'Projection Gate B complete' }).waitFor({ timeout: 60_000 });
 
-  const projectionBoundaryEvidence = await page.evaluate(({ absoluteWorkspace, secret }) => {
+  const projectionBoundaryEvidence = await page.evaluate(({ absoluteWorkspace, mcpSecret, secret }) => {
     const bodyText = document.body.innerText;
+    const markup = document.documentElement.outerHTML;
     return {
       searchVisible: Boolean(document.querySelector('.agent-item[data-item-type="webSearch"]')),
       shellVisible: Array.from(document.querySelectorAll('.agent-item[data-item-type="commandExecution"]')).some((item) => item.textContent?.includes('gate-b-shell-output')),
       diffVisible: Boolean(document.querySelector('.agent-item[data-item-type="fileChange"]')),
       mcpVisible: Boolean(document.querySelector('.agent-item[data-item-type="mcpToolCall"]')),
       imageVisible: Boolean(document.querySelector('.agent-item[data-item-type="imageGeneration"]')),
-      userInputResolved: Boolean(document.querySelector('.interaction-surface[data-kind="userInput"][data-status="resolved"]')),
-      secretAbsent: !bodyText.includes(secret) && !document.documentElement.outerHTML.includes(secret),
+      userInputResolved: !document.querySelector('.interaction-surface[data-kind="userInput"]'),
+      secretAbsent: !bodyText.includes(secret) && !markup.includes(secret),
+      mcpSecretAbsent: !bodyText.includes(mcpSecret) && !markup.includes(mcpSecret),
       absolutePathAbsent: !bodyText.includes(absoluteWorkspace),
       rawMethodAbsent: !bodyText.includes('item/tool/requestUserInput') && !bodyText.includes('item/commandExecution/requestApproval'),
     };
-  }, { absoluteWorkspace: workspace, secret: 'gate-b-secret-value' });
+  }, { absoluteWorkspace: workspace, mcpSecret: 'gate-b-mcp-private-value', secret: 'gate-b-secret-value' });
+  const projectionActivityEvidence = await page.evaluate(() => {
+    const summary = (type) => document.querySelector(`.agent-item[data-item-type="${type}"] > summary .agent-item-summary`)?.textContent ?? '';
+    const turnDiff = document.querySelector('.agent-turn-panel[data-panel="diff"]');
+    const turnDiffStyle = turnDiff ? getComputedStyle(turnDiff) : null;
+    return {
+      searchSummaryVisible: summary('webSearch').includes('LimeShot projection contract'),
+      shellSummaryVisible: summary('commandExecution').includes('gate-b-shell-output'),
+      fileSummaryVisible: summary('fileChange').includes('gate-b-projection.txt'),
+      completedStatusSuppressed: !document.querySelector('.agent-activity-item[data-status="completed"] > summary .agent-item-label em'),
+      turnDiffCardless: Boolean(turnDiffStyle && turnDiffStyle.borderTopStyle === 'none' && turnDiffStyle.backgroundColor === 'rgba(0, 0, 0, 0)'),
+      dynamicFailureVisible: document.querySelector('.agent-item[data-item-type="dynamicToolCall"][data-status="failed"] > summary')?.textContent?.includes('工具执行失败') === true,
+    };
+  });
+  const projectionDetailEvidence = {
+    ...mcpProjectionEvidence,
+    imageGenerationLoadingVisible,
+  };
+  const projectionBoundaryParityEvidence = await page.evaluate((runningVisible) => ({
+    hookFeedbackUserBubble: Boolean(document.querySelector('[data-item-id="gate-b-hook-feedback"][data-kind="user"] .agent-user-status')),
+    multiAgentActionVisible: document.querySelector('[data-item-id="gate-b-collab"] > summary')?.textContent?.includes('已创建') === true,
+    multiAgentDetailsVisible: document.querySelector('[data-item-id="gate-b-collab"] .agent-agent-list')?.textContent?.includes('Projection verified') === true,
+    subAgentEntryVisible: document.querySelector('[data-item-id="gate-b-subagent"]')?.textContent?.includes('reviewer 开始工作') === true,
+    manualCompactionLifecycle: runningVisible && document.querySelector('[data-item-id="gate-b-compaction-manual"]')?.textContent?.includes('上下文已压缩') === true,
+    automaticCompactionVisible: document.querySelector('[data-item-id="gate-b-compaction-auto"]')?.textContent?.includes('上下文已自动压缩') === true,
+    hiddenBoundariesAbsent: !['gate-b-wait', 'gate-b-sleep', 'gate-b-review-enter', 'gate-b-review-exit', 'gate-b-unknown']
+      .some((id) => document.querySelector(`[data-item-id="${id}"]`)),
+  }), manualCompactionRunningVisible);
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-projections.png') });
 
   await composer.fill('Run the interrupt projection.');
@@ -170,6 +401,7 @@ try {
   const interruptVisible = await page.locator('.agent-turn[data-status="interrupted"]').count() === 1;
 
   await page.setViewportSize({ width: 420, height: 900 });
+  await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="true"]').waitFor({ timeout: 20_000 });
   const narrowViewportEvidence = await page.evaluate(() => {
     const viewportWidth = document.documentElement.clientWidth;
     const visible = (element) => {
@@ -187,33 +419,151 @@ try {
       noHorizontalOverflow: document.documentElement.scrollWidth <= viewportWidth + 1,
       constrained,
       composerVisible: Boolean(document.querySelector('.composer-shell')),
+      sidebarCollapsed: document.querySelector('[data-testid="app-shell"]')?.getAttribute('data-sidebar-collapsed') === 'true',
+      sidebarAbsent: !document.querySelector('.sidebar'),
+      scrimAbsent: !document.querySelector('.sidebar-scrim'),
     };
   });
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-projections-narrow.png'), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByTitle('展开侧边栏').click();
+  await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="false"]').waitFor({ timeout: 20_000 });
 
-  const newConversationButton = page.locator('.sidebar-actions').getByRole('button', { name: '新建会话' });
+  const sidebarParityEvidence = await page.evaluate(() => {
+    const sidebar = document.querySelector('.sidebar');
+    const scrollRegion = document.querySelector('.sidebar-scroll-region');
+    const projectList = document.querySelector('[data-testid="project-list"]');
+    const recentList = document.querySelector('[data-testid="recent-list"]');
+    const projectRow = document.querySelector('.project-nav-row');
+    const recentRow = document.querySelector('.standalone-nav-item');
+    const footer = document.querySelector('.sidebar-footer');
+    const windowButtons = Array.from(document.querySelectorAll('.sidebar-window-controls button'));
+    const sectionLabels = Array.from(document.querySelectorAll('.sidebar-section-header > span')).map((element) => element.textContent?.trim());
+    const projectRowStyle = projectRow ? getComputedStyle(projectRow) : null;
+    const recentRowStyle = recentRow ? getComputedStyle(recentRow) : null;
+    return {
+      sectionOrder: sectionLabels[0] === '项目' && sectionLabels[1] === '最近',
+      independentLists: Boolean(projectList && recentList && projectList.parentElement !== recentList.parentElement),
+      sharedScrollRegion: Boolean(scrollRegion && scrollRegion.contains(projectList) && scrollRegion.contains(recentList)),
+      footerOutsideScroll: Boolean(sidebar && footer && footer.parentElement === sidebar && !scrollRegion?.contains(footer)),
+      codexProjectRow: Boolean(projectRowStyle && projectRowStyle.height === '30px' && projectRowStyle.borderRadius === '10px'),
+      codexRecentRow: Boolean(recentRowStyle && recentRowStyle.height === '30px' && recentRowStyle.borderRadius === '10px'),
+      windowNavigation: windowButtons.length === 3 && !windowButtons[0]?.disabled && windowButtons[1]?.disabled && windowButtons[2]?.disabled,
+      semanticPrimaryActions: Array.from(document.querySelectorAll('.sidebar-actions button')).map((button) => button.textContent?.trim()).join('|') === '新建任务',
+    };
+  });
+
+  const importSeed = await page.evaluate(async () => {
+    const started = await window.limeShot.agent.startConversation({ projectId: null, conversationId: 'gate-b-native-import' });
+    const completed = new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        unsubscribe();
+        reject(new Error('Timed out materializing the imported Codex history'));
+      }, 60_000);
+      const unsubscribe = window.limeShot.agent.subscribe((event) => {
+        if (event.type !== 'turn.completed' || event.threadId !== started.threadId) return;
+        window.clearTimeout(timeout);
+        unsubscribe();
+        resolve(undefined);
+      });
+    });
+    await window.limeShot.agent.startTurn({
+      projectId: null,
+      conversationId: started.conversationId,
+      threadId: started.threadId,
+      text: 'Persist this native Codex conversation for automatic discovery.',
+    });
+    await completed;
+    await window.limeShot.agent.renameConversation({
+      projectId: null,
+      conversationId: started.conversationId,
+      threadId: started.threadId,
+      title: 'Gate B native import',
+    });
+    await window.limeShot.agent.importConversation({ threadId: started.threadId });
+    return started;
+  });
+  const importedThreadId = importSeed.threadId;
+  await page.reload();
+  await page.locator('[data-testid="runtime-status"][data-state="ready"]').waitFor({ timeout: 20_000 });
+  await page.getByTestId(`standalone-${importedThreadId}`).waitFor({ timeout: 20_000 });
+  await page.getByTestId(`project-conversation-${projectThreadId}`).waitFor({ timeout: 20_000 });
+  const automaticImportListing = await page.evaluate(({ importedThreadId: threadId, projectThreadId: projectId }) => ({
+    noDedicatedImportAction: !Array.from(document.querySelectorAll('.sidebar-actions button')).some((button) => button.textContent?.includes('导入')),
+    noImportDialog: !document.querySelector('.conversation-import-dialog'),
+    recentEntryVisible: Boolean(document.querySelector(`[data-testid="standalone-${threadId}"]`)),
+    projectConversationNested: Boolean(document.querySelector(`[data-testid="project-conversation-${projectId}"]`)),
+    projectThreadExcludedFromRecent: !document.querySelector(`[data-testid="standalone-${projectId}"]`),
+    noRendererImportRegistry: localStorage.getItem('limeshot.conversations.imported') === null,
+  }), { importedThreadId, projectThreadId });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-conversations-auto-projected.png') });
+  await page.getByTestId(`standalone-${importedThreadId}`).click();
+  await page.locator(`[data-testid="agent-panel"][data-agent-state="readOnly"][data-thread-id="${importedThreadId}"]`).waitFor({ timeout: 60_000 });
+  const importedTurnRejected = await page.evaluate(async ({ threadId }) => {
+    try {
+      await window.limeShot.agent.startTurn({ projectId: null, conversationId: threadId, threadId, text: 'This imported conversation must remain read only.' });
+      return false;
+    } catch {
+      return true;
+    }
+  }, { threadId: importedThreadId });
+  if (await page.getByTestId('app-shell').getAttribute('data-sidebar-collapsed') === 'true') {
+    await page.getByTitle('展开侧边栏').click();
+    await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="false"]').waitFor({ timeout: 20_000 });
+  }
+  const conversationImportEvidence = await page.evaluate(({ importedThreadId: threadId, projectThreadId: projectId }) => ({
+    canonicalReadOnlyVisible: document.querySelector('[data-testid="agent-panel"]')?.getAttribute('data-thread-id') === threadId
+      && document.querySelector('[data-testid="agent-panel"]')?.getAttribute('data-agent-state') === 'readOnly',
+    internalPhaseAbsent: !document.body.innerText.includes('final_answer'),
+    composerReadOnly: document.querySelector('.composer-field textarea')?.disabled === true,
+    recentEntryVisible: Boolean(document.querySelector(`[data-testid="standalone-${threadId}"]`)),
+    projectThreadExcludedFromRecent: !document.querySelector(`[data-testid="standalone-${projectId}"]`),
+  }), { importedThreadId, projectThreadId });
+  sidebarParityEvidence.codexRecentRow = await page.evaluate(() => {
+    const row = document.querySelector('.standalone-nav-item');
+    const style = row ? getComputedStyle(row) : null;
+    return Boolean(style && style.height === '30px' && style.borderRadius === '10px');
+  });
+  await page.getByTestId(`project-conversation-${projectThreadId}`).click();
+  await page.locator(`[data-testid="agent-panel"][data-agent-state="ready"][data-thread-id="${projectThreadId}"]`).waitFor({ timeout: 60_000 });
+
+  const newConversationButton = page.locator('.sidebar-actions').getByRole('button', { name: '新建任务' });
   await newConversationButton.click();
   await page.getByTestId('home-workspace').waitFor({ timeout: 20_000 });
-  const newConversationHome = await page.evaluate(() => {
+  const composerFocused = await page.evaluate(() => {
     const composer = document.querySelector('.home-composer textarea');
-    const profileWorkspace = document.querySelector('.profile-workspace');
+    return document.activeElement === composer;
+  });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-home-project-context.png') });
+  await page.locator('.home-profile-context').click();
+  const newConversationHome = await page.evaluate((expectedProjectName) => {
     const composerBounds = document.querySelector('.home-composer')?.getBoundingClientRect();
-    const profileBounds = profileWorkspace?.getBoundingClientRect();
+    const sidebarBounds = document.querySelector('.sidebar')?.getBoundingClientRect();
+    const profileMenu = document.querySelector('[data-testid="profiles-menu"]');
+    const suggestions = document.querySelectorAll('.home-suggestion');
     return {
       homeVisible: Boolean(document.querySelector('[data-testid="home-workspace"]')),
       conversationHidden: !document.querySelector('[data-testid="agent-panel"]'),
-      composerFocused: document.activeElement === composer,
       oldConversationHidden: !document.body.innerText.includes('Gate B complete'),
-      projectUnselected: document.querySelector('[data-testid="home-project-context"]')?.textContent?.includes('无项目'),
-      profileWorkspacePreserved: profileWorkspace?.querySelectorAll('[data-testid^="profile-"]').length === 5
-        && Boolean(profileWorkspace.querySelector('.profile-summary'))
-        && Boolean(profileBounds && composerBounds && profileBounds.bottom <= composerBounds.top),
+      projectPreserved: document.querySelector('[data-testid="home-project-context"]')?.textContent?.includes(expectedProjectName),
+      projectTitle: document.querySelector('.home-heading h1')?.textContent?.includes(expectedProjectName),
+      suggestionCount: suggestions.length === 4,
+      composerReferenceWidth: Boolean(composerBounds && composerBounds.width >= 560 && composerBounds.width <= 578),
+      composerDocked: Boolean(composerBounds && window.innerHeight - composerBounds.bottom <= 16),
+      sidebarReferenceWidth: Boolean(sidebarBounds && sidebarBounds.width === 275),
+      toolbarTitleAbsent: !document.querySelector('.workspace-toolbar-title'),
+      profileMenuIntegrated: profileMenu?.querySelectorAll('[data-testid^="profile-"]').length === 5
+        && Boolean(document.querySelector('.home-heading'))
+        && Boolean(composerBounds && profileMenu.getBoundingClientRect().bottom <= composerBounds.top),
       addMenuClosed: !document.querySelector('[data-testid="composer-add-menu"]'),
       noNewProjectAction: !Array.from(document.querySelectorAll('.sidebar-actions button')).some((button) => button.textContent?.includes('新建项目')),
+      projectConversationNested: Array.from(document.querySelectorAll('.project-conversation-nav-item'))
+        .some((item) => item.textContent?.includes('Read this project')),
     };
-  });
-  await page.getByRole('button', { name: '整理最近项目' }).click();
+  }, projectName);
+  newConversationHome.composerFocused = composerFocused;
+  await page.getByTestId('profile-general').click();
+  await page.getByRole('button', { name: '整理最近对话' }).click();
   const recentMenu = page.getByTestId('recent-menu');
   await recentMenu.waitFor({ timeout: 20_000 });
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-recent-menu.png') });
@@ -230,6 +580,15 @@ try {
   await projectMenu.waitFor({ timeout: 20_000 });
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-menu.png') });
   const projectMenuText = await projectMenu.innerText();
+  const projectMenuContained = await projectMenu.evaluate((menu) => {
+    const bounds = menu.getBoundingClientRect();
+    return bounds.left >= 8 && bounds.top >= 8
+      && bounds.right <= document.documentElement.clientWidth - 8
+      && bounds.bottom <= document.documentElement.clientHeight - 8;
+  });
+  await page.keyboard.press('ArrowDown');
+  const projectMenuKeyboard = await projectMenu.evaluate((menu) => menu.contains(document.activeElement)
+    && document.activeElement?.getAttribute('role') === 'menuitem');
   await projectMenu.getByRole('menuitem', { name: '置顶项目' }).click();
   const projectPinnedStored = await page.evaluate((expectedProjectId) => {
     const value = JSON.parse(localStorage.getItem('limeshot.sidebar.pinnedProjects') ?? '[]');
@@ -237,18 +596,44 @@ try {
   }, projectId);
   await projectMenuButton.click();
   const unpinAvailable = await page.getByRole('menuitem', { name: '取消置顶' }).isVisible();
+  await page.getByRole('menuitem', { name: '重命名项目' }).click();
+  const projectRenameDialog = await page.getByRole('dialog', { name: '重命名项目' }).isVisible();
+  await page.getByRole('dialog', { name: '重命名项目' }).getByRole('button', { name: '取消' }).click();
+  await projectMenuButton.click();
+  await page.getByRole('menuitem', { name: '全部标为已读' }).click();
+  await projectMenu.waitFor({ state: 'detached', timeout: 20_000 });
+  const projectMarkAllReadAction = !await page.locator('.sidebar-action-error').isVisible();
+  await projectMenuButton.click();
+  await page.getByRole('menuitem', { name: '归档对话' }).click();
+  const projectArchiveDialog = await page.getByRole('dialog', { name: '归档项目中的对话？' }).isVisible();
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-archive-dialog.png') });
+  await page.getByRole('dialog', { name: '归档项目中的对话？' }).getByRole('button', { name: '取消' }).click();
+  await projectMenuButton.click();
+  await page.getByRole('menuitem', { name: '移除项目' }).click();
+  const projectRemoveDialog = await page.getByRole('dialog', { name: '移除项目？' }).isVisible();
+  await page.getByRole('dialog', { name: '移除项目？' }).getByRole('button', { name: '取消' }).click();
+  await projectMenuButton.click();
   await page.getByRole('menuitem', { name: '编辑项目' }).click();
   await page.getByTestId('project-overview').waitFor({ timeout: 20_000 });
   const projectEditOpened = await page.locator('.project-inspector').isVisible();
   await newConversationButton.click();
   await page.getByTestId('home-workspace').waitFor({ timeout: 20_000 });
+  await page.getByTestId('home-project-context').click();
+  await page.getByTestId('composer-add-menu').getByRole('menuitem', { name: /无项目/ }).click();
   const sidebarMenuEvidence = {
-    recentOptionsVisible: ['整理', '按项目', '在一个列表中', '排序方式', '优先级', '最近更新', '手动排序']
+    recentOptionsVisible: ['排序方式', '最近更新', '手动排序']
       .every((label) => recentMenuText.includes(label)),
     recentSortStored,
-    projectOptionsVisible: ['置顶项目', '编辑项目'].every((label) => projectMenuText.includes(label)),
+    projectOptionsVisible: ['置顶项目', '打开', '编辑项目', '重命名项目', '全部标为已读', '归档对话', '移除项目']
+      .every((label) => projectMenuText.includes(label)),
+    projectMenuContained,
+    projectMenuKeyboard,
     projectPinnedStored,
     unpinAvailable,
+    projectRenameDialog,
+    projectMarkAllReadAction,
+    projectArchiveDialog,
+    projectRemoveDialog,
     projectEditOpened,
   };
   const standalonePrompt = 'Start a standalone Gate B conversation.';
@@ -263,12 +648,116 @@ try {
   if (!standaloneListBeforeRestart.some((conversation) => conversation.threadId === standaloneThreadId)) {
     throw new Error(`Standalone thread is missing from thread/list before restart: ${JSON.stringify(standaloneListBeforeRestart)}`);
   }
-  await page.locator('.project-nav-item', { hasText: projectName }).click();
+  const standaloneRow = page.getByTestId(`standalone-${standaloneThreadId}`).locator('..');
+  const threadMenuButton = standaloneRow.locator('.conversation-row-command');
+  await threadMenuButton.click();
+  const threadMenu = page.getByTestId(`conversation-menu-${standaloneThreadId}`);
+  await threadMenu.waitFor({ timeout: 20_000 });
+  const threadMenuText = await threadMenu.innerText();
+  const threadMenuContained = await threadMenu.evaluate((menu) => {
+    const bounds = menu.getBoundingClientRect();
+    return bounds.left >= 8 && bounds.top >= 8
+      && bounds.right <= document.documentElement.clientWidth - 8
+      && bounds.bottom <= document.documentElement.clientHeight - 8;
+  });
+  await page.keyboard.press('ArrowDown');
+  const threadMenuKeyboard = await threadMenu.evaluate((menu) => menu.contains(document.activeElement)
+    && document.activeElement?.getAttribute('role') === 'menuitem');
+  await threadMenu.getByRole('menuitem', { name: '标记为未读' }).click();
+  await page.waitForFunction((threadId) => {
+    const value = JSON.parse(localStorage.getItem('limeshot.sidebar.unreadConversations') ?? '[]');
+    return Array.isArray(value) && value.includes(threadId);
+  }, standaloneThreadId);
+  const threadUnreadStored = true;
+  await threadMenuButton.click();
+  await threadMenu.getByRole('menuitem', { name: '标记为已读' }).click();
+  await page.waitForFunction((threadId) => {
+    const value = JSON.parse(localStorage.getItem('limeshot.sidebar.unreadConversations') ?? '[]');
+    return Array.isArray(value) && !value.includes(threadId);
+  }, standaloneThreadId);
+  const threadReadStored = true;
+  await threadMenuButton.click();
+  await threadMenu.getByRole('menuitem', { name: '复制工作目录' }).click();
+  await page.getByText('已复制工作目录', { exact: true }).waitFor({ timeout: 20_000 });
+  const workingDirectoryCopyFeedback = true;
+  await threadMenuButton.click();
+  await threadMenu.getByRole('menuitem', { name: '复制会话 ID' }).click();
+  await page.getByText('已复制会话 ID', { exact: true }).waitFor({ timeout: 20_000 });
+  const sessionIdCopyFeedback = true;
+  await threadMenuButton.click();
+  await threadMenu.getByRole('menuitem', { name: '重命名对话' }).click();
+  const threadRenameDialog = await page.getByRole('dialog', { name: '重命名对话' }).isVisible();
+  await page.getByRole('dialog', { name: '重命名对话' }).getByRole('button', { name: '取消' }).click();
+  await threadMenuButton.click();
+  await threadMenu.getByRole('menuitem', { name: '删除对话' }).click();
+  const threadDeleteDialog = await page.getByRole('dialog', { name: '删除对话？' }).isVisible();
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-thread-delete-dialog.png') });
+  await page.getByRole('dialog', { name: '删除对话？' }).getByRole('button', { name: '取消' }).click();
+  Object.assign(sidebarMenuEvidence, {
+    threadOptionsVisible: ['置顶对话', '重命名对话', '归档对话', '标记为未读', '打开', '复制工作目录', '复制会话 ID', '删除对话']
+      .every((label) => threadMenuText.includes(label)),
+    threadMenuContained,
+    threadMenuKeyboard,
+    threadUnreadStored,
+    threadReadStored,
+    workingDirectoryCopyFeedback,
+    sessionIdCopyFeedback,
+    threadRenameDialog,
+    threadDeleteDialog,
+  });
+  await page.getByTestId(`project-conversation-${projectThreadId}`).click();
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: /^Gate B complete$/ }).waitFor({ timeout: 60_000 });
 
   await page.getByTitle('打开项目详情').click();
+  await page.getByTestId('project-overview').waitFor({ timeout: 20_000 });
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-details.png') });
+  const inspectProjectLayout = () => page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const inspector = document.querySelector('.project-inspector');
+    const conversation = document.querySelector('.conversation-workspace');
+    const inspectorBounds = inspector?.getBoundingClientRect();
+    const conversationBounds = conversation?.getBoundingClientRect();
+    return {
+      noHorizontalOverflow: document.documentElement.scrollWidth <= viewportWidth + 1,
+      inspectorContained: Boolean(inspectorBounds && inspectorBounds.left >= -1 && inspectorBounds.right <= viewportWidth + 1),
+      inspectorContentContained: Boolean(inspector && inspector.scrollWidth <= inspector.clientWidth + 1),
+      inspectorOverlay: inspector ? getComputedStyle(inspector).position === 'absolute' : false,
+      conversationWidth: conversationBounds?.width ?? 0,
+      sidebarCollapsed: document.querySelector('[data-testid="app-shell"]')?.getAttribute('data-sidebar-collapsed') === 'true',
+    };
+  });
+  await page.setViewportSize({ width: 1024, height: 768 });
+  const projectDesktopLayout = await inspectProjectLayout();
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-details-1024.png') });
+  await page.setViewportSize({ width: 768, height: 900 });
+  const projectCompactLayout = await inspectProjectLayout();
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-details-768.png') });
+  await page.setViewportSize({ width: 420, height: 900 });
+  await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="true"]').waitFor({ timeout: 20_000 });
+  const projectNarrowLayout = await inspectProjectLayout();
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-details-420.png') });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByTitle('展开侧边栏').click();
+  await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="false"]').waitFor({ timeout: 20_000 });
+  const projectResponsiveEvidence = {
+    desktop: projectDesktopLayout.noHorizontalOverflow
+      && projectDesktopLayout.inspectorContained
+      && projectDesktopLayout.inspectorContentContained
+      && !projectDesktopLayout.inspectorOverlay
+      && projectDesktopLayout.conversationWidth >= 400,
+    compact: projectCompactLayout.noHorizontalOverflow
+      && projectCompactLayout.inspectorContained
+      && projectCompactLayout.inspectorContentContained
+      && projectCompactLayout.inspectorOverlay
+      && projectCompactLayout.conversationWidth >= 490,
+    narrow: projectNarrowLayout.noHorizontalOverflow
+      && projectNarrowLayout.inspectorContained
+      && projectNarrowLayout.inspectorContentContained
+      && projectNarrowLayout.inspectorOverlay
+      && projectNarrowLayout.conversationWidth >= 400
+      && projectNarrowLayout.sidebarCollapsed,
+  };
   const approveButton = page.getByRole('button', { name: '批准计划' });
   await approveButton.waitFor({ timeout: 20_000 });
   await approveButton.click();
@@ -362,11 +851,20 @@ try {
   if (!standaloneListAfterRestart.some((conversation) => conversation.threadId === standaloneThreadId)) {
     throw new Error(`Standalone thread is missing from thread/list after restart: ${JSON.stringify(standaloneListAfterRestart)}`);
   }
+  await page.evaluate((threadId) => window.limeShot.agent.importConversation({ threadId }), importedThreadId);
   await page.getByTestId(`standalone-${standaloneThreadId}`).click();
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Standalone Gate B complete' }).waitFor({ timeout: 60_000 });
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '05-opened-project-after-restart.png') });
-  await page.locator('.project-nav-item', { hasText: projectName }).click();
+  await page.getByTestId(`standalone-${importedThreadId}`).click();
+  await page.locator(`[data-testid="agent-panel"][data-agent-state="readOnly"][data-thread-id="${importedThreadId}"]`).waitFor({ timeout: 60_000 });
+  const importedConversationRestoredAfterRestart = await page.evaluate((threadId) => (
+    document.querySelector('[data-testid="agent-panel"]')?.getAttribute('data-thread-id') === threadId
+      && document.querySelector('[data-testid="agent-panel"]')?.getAttribute('data-agent-state') === 'readOnly'
+      && document.querySelector('.composer-field textarea')?.disabled === true
+  ), importedThreadId);
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '05-imported-conversation-after-restart.png') });
+  await page.getByTestId(`project-conversation-${projectThreadId}`).click();
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: /^Gate B complete$/ }).waitFor({ timeout: 60_000 });
   await page.locator('.agent-item[data-item-type="webSearch"]', { hasText: 'LimeShot projection contract' }).waitFor({ timeout: 60_000 });
@@ -388,13 +886,13 @@ try {
     await page.screenshot({ path: join(screenshotDir, '06-media-execution-after-restart.png') });
   }
 
-  const semanticEvidence = await page.evaluate(async ({ seededName, createdName, createdConversationId, standaloneId }) => {
+  const semanticEvidence = await page.evaluate(async ({ seededName, seededConversationId, createdName, createdConversationId, standaloneId }) => {
     const project = (await window.limeShot.project.list()).find((candidate) => candidate.name === seededName);
     if (!project) throw new Error('Gate B project is missing from semantic preload API');
     const createdProject = (await window.limeShot.project.list()).find((candidate) => candidate.name === createdName);
     if (!createdProject) throw new Error('New project is missing from semantic preload API');
     const [history, plans, execution] = await Promise.all([
-      window.limeShot.agent.startConversation({ projectId: project.projectId, conversationId: 'main' }),
+      window.limeShot.agent.startConversation({ projectId: project.projectId, conversationId: seededConversationId }),
       window.limeShot.plan.list(project.projectId),
       window.limeShot.execution.read(project.projectId),
     ]);
@@ -404,7 +902,7 @@ try {
       window.limeShot.agent.startConversation({ projectId: null, conversationId: standaloneId, threadId: standaloneId }),
     ]);
     return { history, plans, execution, createdProject, createdProjectDetail, createdConversation, standaloneConversation };
-  }, { seededName: projectName, createdName: openedProjectName, createdConversationId: openedConversationId, standaloneId: standaloneThreadId });
+  }, { seededName: projectName, seededConversationId: projectConversationId, createdName: openedProjectName, createdConversationId: openedConversationId, standaloneId: standaloneThreadId });
   const requests = fixture.requests();
   const firstRequest = JSON.stringify(requests[0] ?? {});
   const secondRequest = JSON.stringify(requests[1] ?? {});
@@ -414,11 +912,11 @@ try {
   const mcpToolOutput = requests[7]?.input?.find((item) => item.type === 'function_call_output'
     && item.call_id === 'gate-b-mcp-1');
   const userInputOutputRequest = JSON.stringify(requests[8] ?? {});
-  const standaloneRequest = JSON.stringify(requests[10] ?? {});
-  const openedProjectRequest = JSON.stringify(requests[11] ?? {});
+  const standaloneRequest = JSON.stringify(requests[11] ?? {});
+  const openedProjectRequest = JSON.stringify(requests[12] ?? {});
   const evidence = await page.evaluate(() => ({
     source: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('data-runtime-source'),
-    runtimeText: document.querySelector('[data-testid="runtime-status"]')?.textContent ?? '',
+    runtimeTitle: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('title') ?? '',
     assistantVisible: Array.from(document.querySelectorAll('.agent-item[data-kind="assistant"]')).some((item) => item.textContent?.trim() === 'Gate B complete'),
     planState: document.querySelector('.plan-panel > header > span')?.getAttribute('data-state') ?? '',
   }));
@@ -508,10 +1006,10 @@ try {
     hasPreload: foundationEvidence.hasPreload,
     businessSource: evidence.source === 'business-service',
     profileCatalog: foundationEvidence.profileCount === 5,
-    runtimePid: evidence.runtimeText.includes('PID'),
+    runtimePid: evidence.runtimeTitle.includes('PID'),
     toolActivityVisible,
     assistantVisible: evidence.assistantVisible,
-    providerRequestCount: requests.length === 12,
+    providerRequestCount: requests.length === 13,
     dynamicToolAdvertised,
     planToolAdvertised,
     projectToolOutputRouted,
@@ -522,8 +1020,12 @@ try {
     userInputOutputRouted,
     activityInspector: Object.values(activityInspectorEvidence).every(Boolean),
     projectionBoundary: Object.values(projectionBoundaryEvidence).every(Boolean),
+    projectionActivity: Object.values(projectionActivityEvidence).every(Boolean),
+    projectionDetail: Object.values(projectionDetailEvidence).every(Boolean),
+    projectionBoundaryParity: Object.values(projectionBoundaryParityEvidence).every(Boolean),
     approvalInteractionVisible: ['commandApproval', 'fileApproval'].includes(approvalKind),
     mcpElicitationVisible,
+    userInputNarrow: Object.values(userInputNarrowEvidence).every(Boolean),
     interruptVisible,
     narrowViewport: Object.values(narrowViewportEvidence).every(Boolean),
     standaloneExcludedBusinessTools,
@@ -531,6 +1033,7 @@ try {
     historyRestored,
     projectionsRestored,
     interruptRestored,
+    projectResponsive: Object.values(projectResponsiveEvidence).every(Boolean),
     approvalReceiptPersisted: Boolean(approvalReceiptId),
     planApprovedInGui: evidence.planState === 'approved',
     approvedPlanPersisted,
@@ -546,8 +1049,12 @@ try {
     transcodeProgressVisible: transcodeProgressBeforeCancel > 0 && transcodeProgressBeforeCancel < 100,
     ffmpegProcessReaped,
     partialOutputsCleaned,
+    projectRowOpensHome,
     newConversationHome: Object.values(newConversationHome).every(Boolean),
+    sidebarParity: Object.values(sidebarParityEvidence).every(Boolean),
+    conversationImport: Object.values(automaticImportListing).every(Boolean) && Object.values(conversationImportEvidence).every(Boolean) && importedTurnRejected,
     sidebarMenus: Object.values(sidebarMenuEvidence).every(Boolean),
+    importedConversationRestoredAfterRestart,
     directoryProjectOpened,
     openedProjectRestoredAfterRestart,
     standaloneRestoredAfterRestart,
@@ -559,7 +1066,15 @@ try {
       restoredItemTypes: [...restoredItemTypes],
       narrowViewportEvidence,
       projectionBoundaryEvidence,
+      projectionActivityEvidence,
+      projectionDetailEvidence,
+      projectionBoundaryParityEvidence,
       activityInspectorEvidence,
+      sidebarParityEvidence,
+      sidebarMenuEvidence,
+      automaticImportListing,
+      conversationImportEvidence,
+      importedTurnRejected,
     })}`);
   }
   process.stdout.write(`${JSON.stringify({
@@ -577,9 +1092,13 @@ try {
     mcpOutputRouted,
     userInputOutputRouted,
     projectionBoundaryEvidence,
+    projectionActivityEvidence,
+    projectionDetailEvidence,
+    projectionBoundaryParityEvidence,
     activityInspectorEvidence,
     approvalKind,
     mcpElicitationVisible,
+    userInputNarrowEvidence,
     interruptVisible,
     narrowViewportEvidence,
     standaloneExcludedBusinessTools,
@@ -587,6 +1106,7 @@ try {
     historyRestored,
     projectionsRestored,
     interruptRestored,
+    projectResponsiveEvidence,
     approvedPlanPersisted,
     mediaTaskPersisted,
     sourceAssetPersisted,
@@ -600,8 +1120,14 @@ try {
     transcodeProgressBeforeCancel,
     ffmpegProcessReaped,
     partialOutputsCleaned,
+    projectRowOpensHome,
     newConversationHome,
+    sidebarParityEvidence,
+    automaticImportListing,
+    conversationImportEvidence,
+    importedTurnRejected,
     sidebarMenuEvidence,
+    importedConversationRestoredAfterRestart,
     importDialogCallCount,
     directoryProjectOpened,
     openedProjectRestoredAfterRestart,
@@ -717,8 +1243,11 @@ lines.on('line', (line) => {
   if (request.method === 'tools/call') {
     const message = String(request.params?.arguments?.message ?? '');
     send({ jsonrpc: '2.0', id: request.id, result: {
-      content: [{ type: 'text', text: 'MCP Gate B echo: ' + message }],
-      structuredContent: { echoed: message, verified: true },
+      content: [
+        { type: 'text', text: 'MCP Gate B echo: ' + message + '\\nMCP-TEXT-START-' + 'x'.repeat(10_000) + '-MCP-TEXT-END' },
+        { type: 'resource_link', uri: 'mcp://gate-b/projection', name: 'Projection resource' },
+      ],
+      structuredContent: { echoed: message, verified: true, apiKey: 'gate-b-mcp-private-value' },
       isError: false,
     } });
     return;
@@ -755,7 +1284,7 @@ async function seedProject({ businessBinary: executable, userData: dataRoot, wor
   try {
     await rpc.request('initialize', {
       clientInfo: { name: 'limeshot-gate-b', version: '0.1.0' },
-      protocolVersion: 4,
+      protocolVersion: businessProtocol.protocolVersion,
       instanceId: randomUUID(),
     });
     rpc.notify('initialized', {});
@@ -879,6 +1408,7 @@ function gateBResponseEvents(index, requestBody) {
         gaps: [],
         risks: ['Provider capability remains unavailable'],
       }),
+      functionCall('gate-b-tool-failed', 'plan_create', { title: '' }),
       responseCompleted('gate-b-response-2'),
     ];
   }
@@ -1023,8 +1553,9 @@ function gateBResponseEvents(index, requestBody) {
       responseCompleted('gate-b-response-10'),
     ];
   }
-  if (index === 11) return assistantResponse('gate-b-response-11', 'gate-b-message-3', 'Standalone Gate B complete');
-  if (index === 12) return assistantResponse('gate-b-response-12', 'gate-b-message-4', 'Opened project complete');
+  if (index === 11) return assistantResponse('gate-b-response-11', 'gate-b-message-import', 'Imported Codex history');
+  if (index === 12) return assistantResponse('gate-b-response-12', 'gate-b-message-3', 'Standalone Gate B complete');
+  if (index === 13) return assistantResponse('gate-b-response-13', 'gate-b-message-4', 'Opened project complete');
   return [];
 }
 

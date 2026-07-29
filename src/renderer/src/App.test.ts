@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
-import type { AgentEvent, AgentInteractionSubmitResult, AgentPendingInteractionProjection } from '../../shared/desktop';
+import type { AgentEvent, AgentInteractionSubmitResult, AgentPendingInteractionProjection, AgentProjectConversationSummary } from '../../shared/desktop';
 
 const profiles = [
   ['general', 'profile.general.name', 'profile.general.description'],
@@ -16,7 +16,7 @@ const profiles = [
 ].map(([profileId, nameKey, descriptionKey]) => ({ profileId, nameKey, descriptionKey, executionState: 'preparing' as const }));
 
 const foundation = {
-  business: { status: 'ready', serverPid: 4321, protocolVersion: 4, startedAtEpochMs: 1 },
+  business: { status: 'ready', serverPid: 4321, protocolVersion: 5, startedAtEpochMs: 1 },
   profiles,
   skills: [{ skillId: 'core', profileId: 'all', nameKey: 'core', descriptionKey: 'core', instructionPath: 'core' }],
   tools: [{ name: 'project_read', description: 'read project', inputSchema: {} }],
@@ -35,6 +35,35 @@ const executionApi = {
   task: { start: vi.fn(), cancel: vi.fn(), retry: vi.fn() },
   deliverable: { confirm: vi.fn() },
 };
+
+const projectManagementApi = () => ({
+  rename: vi.fn(),
+  archive: vi.fn(),
+  reveal: vi.fn(),
+});
+
+const conversationImportApi = () => ({
+  listImportCandidates: vi.fn(async () => []),
+  importConversation: vi.fn(),
+  renameConversation: vi.fn(),
+  archiveConversation: vi.fn(),
+  deleteConversation: vi.fn(),
+  revealConversation: vi.fn(),
+  copyConversationWorkingDirectory: vi.fn(),
+  copyConversationSessionId: vi.fn(),
+  listProjectConversations: vi.fn(async () => ({ conversations: [] })),
+  archiveProjectConversations: vi.fn(async () => ({ archivedThreadIds: [], failedThreadIds: [] })),
+});
+
+const boundConversation = (projectId: string, threadId: string, title: string): AgentProjectConversationSummary => ({
+  projectId,
+  conversationId: 'main',
+  threadId,
+  title,
+  updatedAtEpochMs: 1,
+  origin: 'limeshot',
+  client: 'appServer',
+});
 
 afterEach(() => {
   cleanup();
@@ -57,8 +86,9 @@ describe('App', () => {
     const openProject = vi.fn(async () => ({ project, brief }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: openProject, list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
+      project: { ...projectManagementApi(), open: openProject, list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
       agent: {
+        ...conversationImportApi(),
         listConversations: vi.fn(async () => []),
         inspectSubThread: vi.fn(),
         listInteractions: vi.fn(async () => []),
@@ -74,10 +104,13 @@ describe('App', () => {
       ...executionApi,
     };
     render(React.createElement(App));
+    await screen.findByTestId('home-workspace');
+    fireEvent.click(screen.getByRole('button', { name: /全能模式/ }));
     expect(await screen.findByTestId('profile-general')).toBeTruthy();
     expect(screen.getAllByTestId(/^profile-/)).toHaveLength(5);
+    fireEvent.click(screen.getByTestId('profile-general'));
     expect(screen.getByTestId('runtime-status').getAttribute('data-runtime-source')).toBe('business-service');
-    expect(screen.getByText(/4321/)).toBeTruthy();
+    expect(screen.getByTestId('runtime-status').getAttribute('title')).toContain('4321');
     expect(screen.getByTestId('home-workspace')).toBeTruthy();
     expect(screen.getByText('还没有项目')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '新建项目' })).toBeNull();
@@ -89,7 +122,7 @@ describe('App', () => {
     expect(screen.getByTestId('home-workspace')).toBeTruthy();
     expect(screen.queryByTestId('agent-panel')).toBeNull();
     await waitFor(() => expect(screen.getByTestId('home-project-context').textContent).toContain(project.name));
-    fireEvent.click(screen.getByRole('button', { name: '整理最近项目' }));
+    fireEvent.click(screen.getByRole('button', { name: '整理最近对话' }));
     expect(screen.getByTestId('recent-menu')).toBeTruthy();
     fireEvent.click(screen.getByRole('menuitemradio', { name: '最近更新' }));
     expect(localStorage.getItem('limeshot.sidebar.recentSort')).toBe('updated');
@@ -107,8 +140,9 @@ describe('App', () => {
     const startConversation = vi.fn();
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: openProject, list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
+      project: { ...projectManagementApi(), open: openProject, list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
       agent: {
+        ...conversationImportApi(),
         listConversations: vi.fn(async () => []),
         inspectSubThread: vi.fn(),
         listInteractions: vi.fn(async () => []),
@@ -158,8 +192,8 @@ describe('App', () => {
     const startTurn = vi.fn(async () => ({ threadId: 'thread-folder', turnId: 'turn-folder' }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: openProject, list: vi.fn(async () => []), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
-      agent: { listConversations: vi.fn(async () => []), inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(), startConversation, startTurn, interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
+      project: { ...projectManagementApi(), open: openProject, list: vi.fn(async () => []), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      agent: { ...conversationImportApi(), listConversations: vi.fn(async () => []), inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(), startConversation, startTurn, interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
       ...executionApi,
@@ -186,7 +220,7 @@ describe('App', () => {
     }));
   });
 
-  it('reads a selected project and saves a versioned Brief through semantic IPC', async () => {
+  it('edits a project from its home without creating a Codex thread', async () => {
     Object.defineProperty(window.navigator, 'language', { configurable: true, value: 'zh-CN' });
     const project = {
       projectId: 'project-1', name: '口播项目', profileId: 'talking_video', state: 'draft' as const,
@@ -199,11 +233,10 @@ describe('App', () => {
     };
     const updateBrief = vi.fn(async () => ({ brief: { ...brief, version: 2, completeness: 'workable' as const } }));
     const startConversation = vi.fn(async () => ({ conversationId: 'main', threadId: 'thread-1', turns: [], access: 'active' as const }));
-    const startTurn = vi.fn(async () => ({ threadId: 'thread-1', turnId: 'turn-1' }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief },
-      agent: { listConversations: vi.fn(async () => []), inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(), startConversation, startTurn, interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
+      project: { ...projectManagementApi(), open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief },
+      agent: { ...conversationImportApi(), listConversations: vi.fn(async () => []), inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(), startConversation, startTurn: vi.fn(), interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
       ...executionApi,
@@ -212,19 +245,17 @@ describe('App', () => {
     await screen.findByTestId('project-project-1');
     fireEvent.click(screen.getByRole('button', { name: '口播项目 项目菜单' }));
     fireEvent.click(screen.getByRole('menuitem', { name: '编辑项目' }));
-    expect(await screen.findByTestId('agent-panel')).toBeTruthy();
+    expect(await screen.findByTestId('home-workspace')).toBeTruthy();
+    expect(screen.queryByTestId('agent-panel')).toBeNull();
     expect(await screen.findByTestId('project-overview')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('目标受众'), { target: { value: '创作者' } });
     fireEvent.click(screen.getByRole('button', { name: '保存 Brief' }));
     expect(await screen.findByText('可生成计划')).toBeTruthy();
     expect(updateBrief).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 1 }));
-    expect(startConversation).toHaveBeenCalledWith({ projectId: 'project-1', conversationId: 'main' });
-    fireEvent.change(screen.getByLabelText('描述要求或补充制作信息'), { target: { value: '生成一个口播制作计划' } });
-    fireEvent.click(screen.getByTitle('发送'));
-    expect(startTurn).toHaveBeenCalledWith({ projectId: 'project-1', conversationId: 'main', threadId: 'thread-1', text: '生成一个口播制作计划' });
+    expect(startConversation).not.toHaveBeenCalled();
   });
 
-  it('opens the creation workspace without starting a thread when a new conversation is requested', async () => {
+  it('keeps project selection on Project Home and opens nested history through its owner target', async () => {
     Object.defineProperty(window.navigator, 'language', { configurable: true, value: 'zh-CN' });
     const project = {
       projectId: 'project-conversation', name: '会话项目', profileId: 'general', state: 'draft' as const,
@@ -235,31 +266,58 @@ describe('App', () => {
       missingFields: ['subject'], conflicts: [], createdAtEpochMs: 1,
       content: { subject: '', audience: '', platform: '', targetDurationSeconds: null, aspectRatio: '', language: 'zh-CN', style: '', mustInclude: [], prohibited: [], deliveryFormat: 'mp4' },
     };
-    const startConversation = vi.fn(async () => ({
-      conversationId: 'main',
-      threadId: 'thread-main',
+    const projectConversation = {
+      projectId: project.projectId,
+      conversationId: 'conversation-history',
+      threadId: 'thread-history',
+      title: '历史项目会话',
+      updatedAtEpochMs: 2,
+      origin: 'limeshot' as const,
+      client: 'appServer' as const,
+    };
+    const startConversation = vi.fn(async (input: { conversationId: string }) => ({
+      conversationId: input.conversationId,
+      threadId: projectConversation.threadId,
       turns: [{
-        id: 'turn-main',
+        id: 'turn-history',
         status: 'completed' as const,
         itemsView: 'full' as const,
-        items: [{ id: 'item-main', type: 'userMessage' as const, kind: 'user' as const, text: '旧会话内容', content: [{ type: 'text' as const, text: '旧会话内容', elements: [] }] }],
+        items: [{ id: 'item-history', type: 'userMessage' as const, kind: 'user' as const, text: '旧会话内容', content: [{ type: 'text' as const, text: '旧会话内容', elements: [] }] }],
       }],
       access: 'active' as const,
     }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
-      agent: { listConversations: vi.fn(async () => []), inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(), startConversation, startTurn: vi.fn(), interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
+      project: { ...projectManagementApi(), open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      agent: {
+        ...conversationImportApi(),
+        listProjectConversations: vi.fn(async () => ({ conversations: [projectConversation] })),
+        listConversations: vi.fn(async () => [projectConversation]),
+        inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(),
+        startConversation, startTurn: vi.fn(), interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined),
+      },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
       ...executionApi,
     };
 
     render(React.createElement(App));
-    fireEvent.click(await screen.findByTestId(`project-${project.projectId}`));
+    await screen.findByTestId(`project-conversation-${projectConversation.threadId}`);
+    expect(screen.queryByTestId(`standalone-${projectConversation.threadId}`)).toBeNull();
+
+    fireEvent.click(screen.getByTestId(`project-${project.projectId}`));
+    expect(await screen.findByTestId('home-workspace')).toBeTruthy();
+    expect(screen.getByTestId('home-project-context').textContent).toContain(project.name);
+    expect(startConversation).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId(`project-conversation-${projectConversation.threadId}`));
+    await waitFor(() => expect(startConversation).toHaveBeenCalledWith({
+      projectId: project.projectId,
+      conversationId: projectConversation.conversationId,
+    }));
     await waitFor(() => expect(document.querySelector('.agent-timeline')?.textContent).toContain('旧会话内容'));
 
-    const newConversationButton = screen.getAllByRole('button', { name: '新建会话' })[0];
+    const newConversationButton = screen.getAllByRole('button', { name: '新建任务' })[0];
     fireEvent.click(newConversationButton);
 
     const home = await screen.findByTestId('home-workspace');
@@ -268,7 +326,7 @@ describe('App', () => {
     expect(screen.queryByTestId('agent-panel')).toBeNull();
     expect(composer.value).toBe('');
     expect(document.activeElement).toBe(composer);
-    expect(screen.getByTestId('home-project-context').textContent).toContain('无项目');
+    expect(screen.getByTestId('home-project-context').textContent).toContain(project.name);
     expect(startConversation).toHaveBeenCalledTimes(1);
   });
 
@@ -283,8 +341,9 @@ describe('App', () => {
     const startTurn = vi.fn(async () => ({ threadId: 'thread-new', turnId: 'turn-new' }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: vi.fn(), list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
+      project: { ...projectManagementApi(), open: vi.fn(), list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
       agent: {
+        ...conversationImportApi(),
         listConversations: vi.fn(async () => []),
         inspectSubThread: vi.fn(),
         listInteractions: vi.fn(async () => []),
@@ -333,8 +392,10 @@ describe('App', () => {
     }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      project: { ...projectManagementApi(), open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
       agent: {
+        ...conversationImportApi(),
+        listProjectConversations: vi.fn(async () => ({ conversations: [boundConversation(project.projectId, 'thread-parent', '协作任务')] })),
         listConversations: vi.fn(async () => []), inspectSubThread, listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(),
         startConversation: vi.fn(async () => ({
           conversationId: 'main', threadId: 'thread-parent', access: 'active' as const,
@@ -352,8 +413,8 @@ describe('App', () => {
     };
 
     render(React.createElement(App));
-    fireEvent.click(await screen.findByTestId('project-project-agents'));
-    fireEvent.click(await screen.findByText('协作 Agent · spawnAgent'));
+    fireEvent.click(await screen.findByTestId('project-conversation-thread-parent'));
+    fireEvent.click(await screen.findByText('已创建'));
     fireEvent.click(await screen.findByRole('button', { name: '查看子 Agent 对话: 素材检查完成' }));
 
     expect(await screen.findByText('子线程检查完成')).toBeTruthy();
@@ -361,7 +422,7 @@ describe('App', () => {
     expect((screen.getByLabelText('正在查看子 Agent，对话为只读') as HTMLTextAreaElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: '返回上级 Agent' }));
-    expect(await screen.findByText('协作 Agent · spawnAgent')).toBeTruthy();
+    expect(await screen.findByText('已创建')).toBeTruthy();
     expect(screen.getByLabelText('描述要求或补充制作信息')).toBeTruthy();
   });
 
@@ -378,8 +439,10 @@ describe('App', () => {
     };
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      project: { ...projectManagementApi(), open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
       agent: {
+        ...conversationImportApi(),
+        listProjectConversations: vi.fn(async () => ({ conversations: [boundConversation(project.projectId, 'thread-error', '异常会话')] })),
         listConversations: vi.fn(async () => []),
         inspectSubThread: vi.fn(),
         listInteractions: vi.fn(async () => []),
@@ -400,7 +463,7 @@ describe('App', () => {
       ...executionApi,
     };
     render(React.createElement(App));
-    fireEvent.click(await screen.findByTestId('project-project-error'));
+    fireEvent.click(await screen.findByTestId('project-conversation-thread-error'));
     expect(await screen.findByText('消息发送失败')).toBeTruthy();
     expect(screen.queryByText(/credential details/)).toBeNull();
   });
@@ -437,8 +500,10 @@ describe('App', () => {
     }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      project: { ...projectManagementApi(), open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
       agent: {
+        ...conversationImportApi(),
+        listProjectConversations: vi.fn(async () => ({ conversations: [boundConversation(project.projectId, restored.threadId, '审批交互')] })),
         listConversations: vi.fn(async () => []), inspectSubThread: vi.fn(), listInteractions, submitInteraction, openInteractionExternal: vi.fn(),
         startConversation: vi.fn(async () => ({ conversationId: 'main', threadId: 'thread-interactions', turns: [], access: 'active' as const })),
         startTurn: vi.fn(), interrupt: vi.fn(async () => undefined), subscribe,
@@ -449,7 +514,7 @@ describe('App', () => {
     };
 
     render(React.createElement(App));
-    fireEvent.click(await screen.findByTestId('project-project-interactions'));
+    fireEvent.click(await screen.findByTestId(`project-conversation-${restored.threadId}`));
     expect(await screen.findByText('npm test')).toBeTruthy();
     expect(listInteractions).toHaveBeenCalledTimes(1);
 
@@ -461,7 +526,7 @@ describe('App', () => {
     expect((allow as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => resolveSubmit?.({ interactionId: restored.interactionId, accepted: true }));
-    expect(await screen.findByText('已处理')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('region', { name: '需要确认' })).toBeNull());
 
     await act(async () => eventListener?.({ type: 'interaction.updated', threadId: other.threadId, interaction: other }));
     fireEvent.click(screen.getByRole('tab', { name: /其他对话/ }));
@@ -470,6 +535,51 @@ describe('App', () => {
     expect(submitInteraction).toHaveBeenLastCalledWith({
       interactionId: 'permission-other', actionToken: 'token-other', kind: 'permissionApproval', decision: 'grantTurn',
     });
+  });
+
+  it('shows native Codex history in Recent automatically and opens it read only', async () => {
+    Object.defineProperty(window.navigator, 'language', { configurable: true, value: 'zh-CN' });
+    const candidate = {
+      threadId: 'thread-imported', title: '外部 Codex 对话', updatedAtEpochMs: 1_785_000_000_000,
+      origin: 'codex' as const, client: 'cli' as const, workspaceLabel: 'workspace',
+    };
+    const importConversation = vi.fn(async () => candidate);
+    const startConversation = vi.fn(async () => ({
+      conversationId: candidate.threadId,
+      threadId: candidate.threadId,
+      access: 'readOnly' as const,
+      turns: [{
+        id: 'turn-imported', status: 'completed' as const, itemsView: 'full' as const,
+        items: [
+          { id: 'user-imported', type: 'userMessage' as const, kind: 'user' as const, text: '历史问题', content: [{ type: 'text' as const, text: '历史问题', elements: [] }] },
+          { id: 'agent-imported', type: 'agentMessage' as const, kind: 'assistant' as const, text: '历史回答', phase: 'final_answer' },
+        ],
+      }],
+    }));
+    window.limeShot = {
+      foundation: { read: vi.fn(async () => foundation) },
+      project: { ...projectManagementApi(), open: vi.fn(), list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
+      agent: {
+        ...conversationImportApi(), listConversations: vi.fn(async () => [candidate]), importConversation,
+        inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(),
+        startConversation, startTurn: vi.fn(), interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined),
+      },
+      plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
+      approval: { decide: vi.fn() },
+      ...executionApi,
+    };
+
+    render(React.createElement(App));
+    await screen.findByTestId('home-workspace');
+    fireEvent.click(await screen.findByTestId(`standalone-${candidate.threadId}`));
+
+    await waitFor(() => expect(startConversation).toHaveBeenCalledWith({ projectId: null, conversationId: candidate.threadId, threadId: candidate.threadId }));
+    expect(await screen.findByText('历史回答')).toBeTruthy();
+    expect(screen.queryByText('final_answer')).toBeNull();
+    expect(screen.getByTestId('agent-panel').getAttribute('data-agent-state')).toBe('readOnly');
+    expect(screen.getByTestId(`standalone-${candidate.threadId}`)).toBeTruthy();
+    expect(importConversation).not.toHaveBeenCalled();
+    expect(localStorage.getItem('limeshot.conversations.imported')).toBeNull();
   });
 
   it('connects semantic activity events to the conversation header and composer', async () => {
@@ -490,8 +600,10 @@ describe('App', () => {
     });
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      project: { ...projectManagementApi(), open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
       agent: {
+        ...conversationImportApi(),
+        listProjectConversations: vi.fn(async () => ({ conversations: [boundConversation(project.projectId, 'thread-activity', '状态投影')] })),
         listConversations: vi.fn(async () => []), inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(),
         startConversation: vi.fn(async () => ({ conversationId: 'main', threadId: 'thread-activity', turns: [], access: 'active' as const })),
         startTurn: vi.fn(), interrupt: vi.fn(async () => undefined), subscribe,
@@ -502,7 +614,7 @@ describe('App', () => {
     };
 
     render(React.createElement(App));
-    fireEvent.click(await screen.findByTestId('project-project-activity'));
+    fireEvent.click(await screen.findByTestId('project-conversation-thread-activity'));
     const composer = await screen.findByLabelText('描述要求或补充制作信息') as HTMLTextAreaElement;
 
     await act(async () => eventListener?.({
