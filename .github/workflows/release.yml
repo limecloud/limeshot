@@ -330,7 +330,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           npm run package:stage
-          npx electron-forge make --platform win32 --arch x64 --targets squirrel
+          npx electron-forge make --platform win32 --arch x64 --targets "@electron-forge/maker-squirrel"
 
       - name: Verify packaged app and Squirrel assets
         shell: pwsh
