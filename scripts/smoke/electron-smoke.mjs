@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -839,6 +839,7 @@ try {
   }
   const ffprobeArgv = await readFile(ffprobeLog, 'utf8');
   const ffmpegArgv = await readFile(ffmpegLog, 'utf8');
+  const workspaceAssetsPath = join(await realpath(workspace), 'assets');
 
   await application.evaluate(({ dialog }, directoryPath) => {
     globalThis.__limeshotDialogCallCount = 0;
@@ -1048,14 +1049,21 @@ try {
   const currentDeliverablePersisted = currentDeliverables.length === 1
     && currentDeliverables[0].artifactId === retriedOutputArtifact?.artifactId
     && currentDeliverables[0].qaArtifactId === retriedQaArtifact?.artifactId;
-  const structuredProbeArgv = ffprobeArgv.includes('-show_entries')
-    && ffprobeArgv.includes('-of\njson')
-    && ffprobeArgv.includes(join(workspace, 'assets'));
-  const structuredFfmpegArgv = ffmpegArgv.includes('-progress\npipe:1')
-    && ffmpegArgv.includes('-c:v\nmpeg4')
-    && ffmpegArgv.includes('-c:a\naac')
-    && ffmpegArgv.includes('-f\nmp4')
-    && ffmpegArgv.includes(join(workspace, 'assets'))
+  const normalizeArgv = (value) => {
+    const normalized = value.replaceAll('\r\n', '\n');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+  const ffprobeArgvNormalized = normalizeArgv(ffprobeArgv);
+  const ffmpegArgvNormalized = normalizeArgv(ffmpegArgv);
+  const workspaceAssetsNeedle = normalizeArgv(workspaceAssetsPath);
+  const structuredProbeArgv = ffprobeArgvNormalized.includes('-show_entries')
+    && ffprobeArgvNormalized.includes('-of\njson')
+    && ffprobeArgvNormalized.includes(workspaceAssetsNeedle);
+  const structuredFfmpegArgv = ffmpegArgvNormalized.includes('-progress\npipe:1')
+    && ffmpegArgvNormalized.includes('-c:v\nmpeg4')
+    && ffmpegArgvNormalized.includes('-c:a\naac')
+    && ffmpegArgvNormalized.includes('-f\nmp4')
+    && ffmpegArgvNormalized.includes(workspaceAssetsNeedle)
     && ffmpegArgv.includes('.part');
   const directoryProjectOpened = semanticEvidence.createdProject.workspaceName === openedProjectName
     && semanticEvidence.createdProjectDetail.brief.content.subject === ''
