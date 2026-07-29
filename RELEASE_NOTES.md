@@ -13,6 +13,8 @@
 ### 对话与项目
 
 - Codex `thread/list` 分页发现本地非 ephemeral 根 Thread；工作目录位于 Project 根目录或子目录的 Thread 自动归入对应 Project，其余进入 Recent。
+- 正式包与开发态统一读取标准共享 Codex home（默认 `~/.codex`，可由受控环境变量覆盖），因此同一用户由 Codex CLI、编辑器或 LimeShot 创建的 canonical history 可被统一发现；LimeShot 不再建立私有 history silo。
+- Project/Thread 工作目录归组会解析真实路径，macOS/Linux 符号链接和 Windows junction 指向同一目录时仍归入同一 Project；Project 根目录及其嵌套工作区的既有 Codex history 均进入项目会话树。
 - 所有历史继续由 Codex `thread/read` 与 paginated history 提供。LimeShot 不复制 Agent history，也不从 delta 合成终态。
 - 自动发现但未绑定的外部 Thread 以只读方式打开；Electron Main 拒绝对其启动 Turn，避免继承其他宿主的动态工具或审批能力。
 - Business protocol 升级至 v5，增加 `project/rename`、`project/archive`、`conversation/binding/list` 与 `conversation/unbind`，并同步 Rust、JSON Schema、TypeScript client、Electron semantic gateway 和测试合同。
@@ -37,6 +39,7 @@
 - 首次提供 Windows x64 Squirrel 发布资产：Setup EXE、NuGet package 与 `RELEASES`。
 - 继续提供 macOS Apple Silicon DMG 与 ZIP。两个平台均固定 OpenAI 官方 Codex `0.145.0`，校验 archive、executable、版本输出和包内 companion binaries。
 - GitHub Actions 在 macOS 与 Windows 原生运行真实 Electron Gate B；两个平台资产全部成功后才统一生成 `SHA256SUMS.txt` 并发布 Release。
+- Gate B 显式固定 `zh-CN` 测试语言，避免 Windows Runner 的系统 locale 改变可访问名称；产品的五语言内容继续由 locale 回归覆盖。
 
 ### 当前范围
 
@@ -48,7 +51,7 @@
 ### 发布验证
 
 - `npm run verify:local` 通过版本、runtime/UI 治理、资源来源、类型、协议、41 项 Rust 测试、release build 和真实 Electron Gate B。
-- 完整 Vitest 共 19 个文件、97 项测试通过；Business/Codex client 合同共 8 项通过。
+- 完整 Vitest 共 20 个文件、100 项测试通过；Business/Codex client 合同共 8 项通过。
 - Gate B 固定 Codex `0.145.0` 与 Business protocol v5，完成 13 次确定性 provider request；自动归组、canonical history、只读保护、Project binding、Agent 投影、审批、媒体、QA、Deliverable 和冷启动恢复证据全部通过。
 - macOS/Windows 平台构建与正式资产仍以本版本 GitHub Actions 的结果为准；正式 Release 只接受 Actions 构建并复验的资产。
 

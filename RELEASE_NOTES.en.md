@@ -13,6 +13,8 @@ Release date: 2026-07-29
 ### Conversations and Projects
 
 - Discovers local non-ephemeral root threads through paginated Codex `thread/list`. Threads whose working directory is the Project root or a descendant are grouped into that Project; all others appear in Recent.
+- Uses the standard shared Codex home in packaged and development builds (`~/.codex` by default, with an explicit managed override), allowing canonical history created by Codex CLI, editors, or LimeShot to be discovered without a private LimeShot history silo.
+- Resolves real paths while grouping Project and Thread working directories, so macOS/Linux symlinks and Windows junctions that point to the same directory share one Project owner. Existing history from both Project roots and nested workspaces appears in the Project conversation tree.
 - Keeps Codex `thread/read` and paginated history as the only conversation-history source. LimeShot does not copy Agent history or synthesize terminal state from deltas.
 - Opens automatically discovered, unbound external threads as read-only. Electron Main rejects new Turns for them so capabilities and approvals from another Codex host are not inherited.
 - Upgrades the Business protocol to v5 with `project/rename`, `project/archive`, `conversation/binding/list`, and `conversation/unbind`, synchronized across Rust, JSON Schema, the TypeScript client, Electron semantic gateways, and contract tests.
@@ -37,6 +39,7 @@ Release date: 2026-07-29
 - Adds the first Windows x64 Squirrel release: Setup EXE, NuGet package, and `RELEASES`.
 - Continues macOS Apple Silicon DMG and ZIP releases. Both platforms pin official OpenAI Codex `0.145.0` and verify the archive, executable, version output, and packaged companion binaries.
 - Runs the real Electron Gate B natively on macOS and Windows in GitHub Actions. The Release is published only after both platform asset sets succeed and a unified `SHA256SUMS.txt` is generated and verified.
+- Pins the Gate B UI language to `zh-CN` so Windows Runner locale cannot change accessibility locators; the product's five-language content remains covered by locale regressions.
 
 ### Current scope
 
@@ -48,7 +51,7 @@ Release date: 2026-07-29
 ### Release verification
 
 - `npm run verify:local` passes version, runtime/UI governance, resource provenance, type, protocol, 41 Rust tests, the release build, and the real Electron Gate B.
-- The full Vitest suite passes 97 tests across 19 files; the Business and Codex client contract suite passes 8 tests.
+- The full Vitest suite passes 100 tests across 20 files; the Business and Codex client contract suite passes 8 tests.
 - Gate B pins Codex `0.145.0` and Business protocol v5, completes 13 deterministic provider requests, and passes all evidence for automatic grouping, canonical history, read-only protection, Project binding, Agent projection, approvals, media, QA, Deliverables, and cold-start recovery.
 - macOS and Windows platform builds and official assets remain subject to this version's GitHub Actions run. Official Release assets must be built and verified by Actions.
 

@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DESKTOP_IPC, type ConversationTargetInput } from '../shared/desktop';
@@ -278,6 +281,38 @@ describe('sidebar conversation IPC', () => {
       threadId: 'thread-project',
       text: 'should stay read only',
     })).rejects.toThrow('导入的 Codex 会话为只读');
+  });
+
+  it('groups Codex history when the project and thread cwd use different real paths for the same directory', async () => {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), 'limeshot-ipc-workspace-'));
+    const canonicalWorkspace = join(temporaryRoot, 'workspace');
+    const nestedWorkspace = join(canonicalWorkspace, 'packages', 'app');
+    const workspaceAlias = join(temporaryRoot, 'workspace-alias');
+    mkdirSync(nestedWorkspace, { recursive: true });
+    symlinkSync(canonicalWorkspace, workspaceAlias, process.platform === 'win32' ? 'junction' : 'dir');
+    try {
+      const { business, businessRequest, codex, codexRequest } = supervisors();
+      businessRequest.mockImplementation(async (method: string) => {
+        if (method === 'conversation/binding/list') return { bindings: [] };
+        if (method === 'project/context/read') return { workspacePath: workspaceAlias };
+        throw new Error(`unexpected business method: ${method}`);
+      });
+      codexRequest.mockImplementation(async (method: string) => method === 'thread/list'
+        ? { data: [codexThread('thread-realpath', nestedWorkspace, 'Canonical history', 'exec')], nextCursor: null }
+        : {});
+      registerIpc(business, codex, new ConversationBindings());
+
+      await expect(invoke(DESKTOP_IPC.projectConversationList, { projectId: 'project-realpath' })).resolves.toEqual({
+        conversations: [expect.objectContaining({
+          projectId: 'project-realpath',
+          conversationId: 'thread-realpath',
+          threadId: 'thread-realpath',
+          origin: 'codex',
+        })],
+      });
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
   });
 
   it('opens an imported unmaterialized Codex thread as read only with empty history', async () => {

@@ -26,8 +26,7 @@ function developmentExecutableName(): string {
   throw new Error(`当前开发平台没有受管 Codex release: ${process.platform}-${process.arch}`);
 }
 
-function resolveCodexHome(): string {
-  if (app.isPackaged) return join(app.getPath('userData'), 'codex');
+export function resolveCodexHome(): string {
   const override = process.env.LIMESHOT_CODEX_HOME ?? process.env.CODEX_HOME ?? join(homedir(), '.codex');
   if (!isAbsolute(override)) throw new Error('LIMESHOT_CODEX_HOME 必须是绝对路径');
   return resolve(override);

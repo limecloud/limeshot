@@ -21,7 +21,7 @@ LimeShot 固定提供五类业务入口，但只使用一套 Agent runtime 和�
 `v0.4.0` 已打通以下 current 主链：
 
 - Codex Conversation 的创建、18 类 Item 原序渲染、72 类 notification 语义投影、中断、paginated history 恢复，以及本地 Codex 根 Thread 自动发现。
-- Project 会话树、Recent 去重与整理、Project Home、会话自动归组，以及未绑定外部 Thread 的 canonical history 只读查看。
+- Project 会话树、Recent 去重与整理、Project Home、真实路径会话自动归组，以及未绑定外部 Thread 的 canonical history 只读查看。
 - Command/File/Permission Approval、RequestUserInput、MCP Elicitation、Activity Row、MCP/动态工具/媒体投影和多 Agent 子线程只读导航。
 - Project、Brief、Conversation binding、ProductionPlan 和不可变 ApprovalReceipt；Business protocol v5 增加 Project 重命名/软归档与 Conversation binding 列表/解绑。
 - 素材导入、FFprobe 探测、FFmpeg MP4 转码、进度、取消、超时与重试。
@@ -104,7 +104,7 @@ Turn 完成、Task 成功、passing QA、Artifact 登记和 Deliverable 确认�
 npm ci
 ```
 
-开发入口只接受 `resources/codex/manifest.v1.json` 声明且 hash、版本都匹配的官方 Codex。可以把 binary 放入 manifest 对应的默认目录，或显式提供绝对路径；Windows 使用对应的 `codex.exe`：
+开发入口只接受 `resources/codex/manifest.v1.json` 声明且 hash、版本都匹配的官方 Codex。可以把 binary 放入 manifest 对应的默认目录，或显式提供绝对路径；Windows 使用对应的 `codex.exe`。开发态与正式包默认共享标准 `~/.codex`，也可通过绝对路径 `LIMESHOT_CODEX_HOME` 显式隔离：
 
 ```bash
 export LIMESHOT_CODEX_BIN="/absolute/path/to/codex-aarch64-apple-darwin"

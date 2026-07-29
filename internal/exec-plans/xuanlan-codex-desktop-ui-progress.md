@@ -241,16 +241,35 @@ Renderer semantic state
 - [x] Project row 不再固定启动 `main` conversation，而是进入带项目上下文的 Project Home；项目编辑在 Home 的业务检查器中完成，不隐式创建 Codex Thread。
 - [x] App 集成测试覆盖 Project Home、项目历史子行完整 start target 和 Recent 去重；Main 合同测试覆盖 unmaterialized binding fallback。定向 26 项 tests 与 typecheck 通过。
 
+### 2026-07-29：Project Home / Recent owner Gate B 收口
+
+- [x] Project row 在真实 Electron 中只进入 Project Home，不隐式 materialize 固定 `main` Thread；项目历史只从嵌套会话子行恢复。
+- [x] Recent 自动投影 Electron Main `thread/list` 返回的原生 Codex 历史；Renderer 无手工导入 action、无导入弹窗、无 `localStorage` 导入 registry。
+- [x] 同一 Thread 同时存在业务 project binding 与原生 history 时，以 project binding 为唯一 owner，并从 Recent 去重。
+- [x] 自动发现的未绑定历史保持只读；重启后独立 Thread、只读原生历史和项目 Thread 三条恢复路径均通过真实 Codex `thread/read|resume`。
+- [x] Electron Gate B 13 次 provider 请求全部通过；`projectRowOpensHome`、`automaticImportListing`、`conversationImportEvidence`、`importedConversationRestoredAfterRestart` 和 Sidebar 菜单 21 项证据全绿。
+- [x] 截图目录：`/tmp/limeshot-codex-sidebar-owner-20260729`；人工复验 `01-project-home.png`、`02-conversations-auto-projected.png`、`02-home-project-context.png` 无 owner 重复或错误选中。
+- [x] `npm run typecheck`、全量 Vitest 20 个文件 100 项、8 项 client contracts、runtime/UI governance、resource provenance 与 Electron build 全部通过。
+
+### 2026-07-29：Sidebar 静止态与目录历史归属
+
+- [x] 对照固定 Renderer `tzl/izl`，Project 行的新增任务与菜单动作只在 hover、键盘 focus 或菜单打开时显示；选中 Project 不再常驻露出动作图标。
+- [x] 项目会话由 `48px` 过深缩进收紧到 Codex 的 `40px` 文字起点；“显示更多”和错误状态同步使用同一前导槽位节奏。
+- [x] Gate B 增加 `projectActionsRestHidden` 与 `codexProjectThreadIndent`，避免功能回归通过但静止态视觉再次漂移。
+- [x] 打开本地目录后，该目录及其子目录中已有的 root Codex `exec` 历史自动归入 Project，会话保持只读且从 Recent 去重；realpath 路径别名和重启恢复均有覆盖。
+- [x] 真实 Electron Gate B 的 `openedProjectExistingHistoryNested`、`openedProjectExistingHistoryRestored` 与 Sidebar 全部证据全绿；截图目录：`/tmp/limeshot-codex-sidebar-visual-v2-20260729`。
+- [x] `npm run typecheck`、全量 Vitest 20 个文件 100 项、8 项 client contracts、runtime/UI governance、resource provenance 与 Electron build 全部通过。
+
 ## 完成度
 
 - 源码映射：72%
-- P0 主工作流实现：90%（Sidebar 核心菜单、项目多会话树、Recent 去重和 Project Home 落点完成；条件型 Thread action 仍未完成）
+- P0 主工作流实现：92%（Sidebar 核心菜单、项目多会话树、目录历史归属、Recent 去重和 Project Home 落点完成；条件型 Thread action 仍未完成）
 - P1 Agent 投影视觉：72%
 - P2 业务检查器：15%
-- P3 治理与回归：70%
+- P3 治理与回归：78%
 - Codex 运行态截图对照：8%（Project Home 已有用户截图；其余 surface 仍受 Computer Use 应用策略限制）
-- UI parity 整体：59%
+- UI parity 整体：61%
 
 ## 下一刀
 
-先用真实 Electron Gate B 固化 Project Home -> 项目会话子行的导航、Recent 去重和 Home 业务检查器；再按用户截图继续侧栏视觉复验。随后只实现具备完整产品 owner 的 Thread fork/continue；deep link、多窗口和 stable worktree 在产品链建立前保持不显示。
+按用户截图继续侧栏视觉复验，下一刀收紧品牌区的标题/chevron、Search 对位和一级动作区纵向节奏；不为尚无产品 owner 的 Pull Request、Scheduled、Plugins 制造假入口。随后实现具备完整产品 owner 的 Thread fork/continue；deep link、多窗口和 stable worktree 在产品链建立前保持不显示。

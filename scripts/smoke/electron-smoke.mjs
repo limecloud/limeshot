@@ -32,6 +32,7 @@ if (version.status !== 0 || version.stdout.trim() !== `codex-cli ${manifest.vers
 
 const fixture = await startResponsesFixture();
 const userData = await mkdtemp(join(tmpdir(), 'limeshot-gate-b-'));
+const codexHome = join(userData, 'shared-codex-home');
 const workspace = join(userData, 'workspace');
 const mcpFixturePath = join(userData, 'gate-b-mcp.mjs');
 const sourceAssetPath = join(userData, 'source.wav');
@@ -43,17 +44,32 @@ const ffmpegFixture = join(userData, process.platform === 'win32' ? 'ffmpeg-fixt
 const projectName = 'Gate B project';
 const openedProjectName = 'opened-project';
 const openedProjectPath = join(userData, openedProjectName);
+const openedProjectNestedPath = join(openedProjectPath, 'nested-workspace');
 const screenshotDir = process.env.LIMESHOT_SMOKE_SCREENSHOT_DIR;
 let application;
 
 try {
   await mkdir(workspace, { recursive: true });
-  await mkdir(openedProjectPath, { recursive: true });
+  await mkdir(openedProjectNestedPath, { recursive: true });
   await writeMcpFixture(mcpFixturePath);
   await writeWaveFixture(sourceAssetPath);
   compileFfprobeFixture(ffprobeFixture);
   compileFfmpegFixture(ffmpegFixture);
-  await writeCodexConfig(join(userData, 'codex'), fixture.baseUrl, mcpFixturePath);
+  await writeCodexConfig(codexHome, fixture.baseUrl, mcpFixturePath);
+  const openedProjectHistory = await Promise.all([
+    seedCodexExecHistory({
+      codexBinary,
+      codexHome,
+      cwd: openedProjectPath,
+      prompt: 'Gate B existing parent-directory conversation.',
+    }),
+    seedCodexExecHistory({
+      codexBinary,
+      codexHome,
+      cwd: openedProjectNestedPath,
+      prompt: 'Gate B existing nested-directory conversation.',
+    }),
+  ]);
   await seedProject({ businessBinary, userData, workspace, projectName });
 
   const launchEnv = { ...process.env };
@@ -61,13 +77,13 @@ try {
   launchEnv.NO_PROXY = '127.0.0.1,localhost';
   launchEnv.no_proxy = launchEnv.NO_PROXY;
   const electronLaunchOptions = {
-    args: [root, `--user-data-dir=${userData}`],
+    args: [root, `--user-data-dir=${userData}`, '--lang=zh-CN'],
     cwd: root,
     env: {
       ...launchEnv,
       LIMESHOT_BUSINESS_BIN: businessBinary,
       LIMESHOT_CODEX_BIN: codexBinary,
-      LIMESHOT_CODEX_HOME: join(userData, 'codex'),
+      CODEX_HOME: codexHome,
       LIMESHOT_FFPROBE_BIN: ffprobeFixture,
       LIMESHOT_FFMPEG_BIN: ffmpegFixture,
       LIMESHOT_ELECTRON_SMOKE: '1',
@@ -93,6 +109,7 @@ try {
     !document.querySelector('[data-testid="agent-panel"]')
       && document.querySelector('[data-testid="home-project-context"]')?.textContent?.includes(expectedProjectName) === true
   ), projectName);
+  await page.mouse.move(800, 100);
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '01-project-home.png') });
   const homeComposer = page.locator('.home-composer textarea');
   await homeComposer.fill('Read this project, then confirm the result.');
@@ -435,6 +452,8 @@ try {
     const projectList = document.querySelector('[data-testid="project-list"]');
     const recentList = document.querySelector('[data-testid="recent-list"]');
     const projectRow = document.querySelector('.project-nav-row');
+    const projectRowCommand = document.querySelector('.project-row-command');
+    const projectThreadLabel = document.querySelector('.project-conversation-nav-item > span:last-child');
     const recentRow = document.querySelector('.standalone-nav-item');
     const footer = document.querySelector('.sidebar-footer');
     const windowButtons = Array.from(document.querySelectorAll('.sidebar-window-controls button'));
@@ -447,6 +466,8 @@ try {
       sharedScrollRegion: Boolean(scrollRegion && scrollRegion.contains(projectList) && scrollRegion.contains(recentList)),
       footerOutsideScroll: Boolean(sidebar && footer && footer.parentElement === sidebar && !scrollRegion?.contains(footer)),
       codexProjectRow: Boolean(projectRowStyle && projectRowStyle.height === '30px' && projectRowStyle.borderRadius === '10px'),
+      projectActionsRestHidden: Boolean(projectRowCommand && getComputedStyle(projectRowCommand).opacity === '0'),
+      codexProjectThreadIndent: Math.round(projectThreadLabel?.getBoundingClientRect().left ?? -1) === 40,
       codexRecentRow: Boolean(recentRowStyle && recentRowStyle.height === '30px' && recentRowStyle.borderRadius === '10px'),
       windowNavigation: windowButtons.length === 3 && !windowButtons[0]?.disabled && windowButtons[1]?.disabled && windowButtons[2]?.disabled,
       semanticPrimaryActions: Array.from(document.querySelectorAll('.sidebar-actions button')).map((button) => button.textContent?.trim()).join('|') === '新建任务',
@@ -829,6 +850,36 @@ try {
   await page.locator('.project-nav-item', { hasText: openedProjectName }).waitFor({ timeout: 20_000 });
   await page.getByTestId('home-project-context').filter({ hasText: openedProjectName }).waitFor({ timeout: 20_000 });
   if (await page.getByTestId('agent-panel').count() !== 0) throw new Error('选择本地文件夹时不应直接创建 Codex Thread');
+  const openedProjectListing = await page.evaluate(async (projectName) => {
+    const project = (await window.limeShot.project.list()).find((candidate) => candidate.name === projectName);
+    if (!project) throw new Error(`Opened project is missing: ${projectName}`);
+    return {
+      project,
+      conversations: (await window.limeShot.agent.listProjectConversations({ projectId: project.projectId })).conversations,
+    };
+  }, openedProjectName);
+  const openedProjectExistingHistoryNested = openedProjectHistory.every((history) => (
+    openedProjectListing.conversations.some((conversation) => conversation.threadId === history.threadId)
+  ));
+  if (!openedProjectExistingHistoryNested) {
+    throw new Error(`Opened project Codex histories are missing from semantic projection: ${JSON.stringify({
+      project: openedProjectListing.project,
+      expectedThreadIds: openedProjectHistory.map((history) => history.threadId),
+      conversations: openedProjectListing.conversations,
+    })}`);
+  }
+  for (const history of openedProjectHistory) {
+    await page.getByTestId(`project-conversation-${history.threadId}`).waitFor({ timeout: 20_000 });
+    if (await page.getByTestId(`standalone-${history.threadId}`).count() !== 0) {
+      throw new Error(`Project Codex history is duplicated in Recent: ${history.threadId}`);
+    }
+  }
+  await page.getByTestId(`project-conversation-${openedProjectHistory[1].threadId}`).click();
+  await page.locator(`[data-testid="agent-panel"][data-agent-state="readOnly"][data-thread-id="${openedProjectHistory[1].threadId}"]`).waitFor({ timeout: 60_000 });
+  await page.locator('.agent-item[data-kind="assistant"]', { hasText: openedProjectHistory[1].assistantText }).waitFor({ timeout: 60_000 });
+  await newConversationButton.click();
+  await page.getByTestId('home-workspace').waitFor({ timeout: 20_000 });
+  await page.getByTestId('home-project-context').filter({ hasText: openedProjectName }).waitFor({ timeout: 20_000 });
   await page.locator('.home-composer textarea').fill('Create a conversation in this local folder.');
   await page.locator('.home-composer textarea').press('Enter');
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
@@ -851,6 +902,16 @@ try {
   if (!standaloneListAfterRestart.some((conversation) => conversation.threadId === standaloneThreadId)) {
     throw new Error(`Standalone thread is missing from thread/list after restart: ${JSON.stringify(standaloneListAfterRestart)}`);
   }
+  for (const history of openedProjectHistory) {
+    await page.getByTestId(`project-conversation-${history.threadId}`).waitFor({ timeout: 20_000 });
+    if (await page.getByTestId(`standalone-${history.threadId}`).count() !== 0) {
+      throw new Error(`Restored project Codex history is duplicated in Recent: ${history.threadId}`);
+    }
+  }
+  const openedProjectExistingHistoryRestored = true;
+  await page.getByTestId(`project-conversation-${openedProjectHistory[0].threadId}`).click();
+  await page.locator(`[data-testid="agent-panel"][data-agent-state="readOnly"][data-thread-id="${openedProjectHistory[0].threadId}"]`).waitFor({ timeout: 60_000 });
+  await page.locator('.agent-item[data-kind="assistant"]', { hasText: openedProjectHistory[0].assistantText }).waitFor({ timeout: 60_000 });
   await page.evaluate((threadId) => window.limeShot.agent.importConversation({ threadId }), importedThreadId);
   await page.getByTestId(`standalone-${standaloneThreadId}`).click();
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
@@ -1053,6 +1114,8 @@ try {
     newConversationHome: Object.values(newConversationHome).every(Boolean),
     sidebarParity: Object.values(sidebarParityEvidence).every(Boolean),
     conversationImport: Object.values(automaticImportListing).every(Boolean) && Object.values(conversationImportEvidence).every(Boolean) && importedTurnRejected,
+    openedProjectExistingHistoryNested,
+    openedProjectExistingHistoryRestored,
     sidebarMenus: Object.values(sidebarMenuEvidence).every(Boolean),
     importedConversationRestoredAfterRestart,
     directoryProjectOpened,
@@ -1126,6 +1189,8 @@ try {
     automaticImportListing,
     conversationImportEvidence,
     importedTurnRejected,
+    openedProjectExistingHistoryNested,
+    openedProjectExistingHistoryRestored,
     sidebarMenuEvidence,
     importedConversationRestoredAfterRestart,
     importDialogCallCount,
@@ -1206,6 +1271,43 @@ args = ["${tomlString(mcpFixturePath)}"]
 startup_timeout_sec = 10
 tool_timeout_sec = 10
 `);
+}
+
+function seedCodexExecHistory({ codexBinary, codexHome, cwd, prompt }) {
+  const env = { ...process.env, CODEX_HOME: codexHome };
+  for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[key];
+  env.NO_PROXY = '127.0.0.1,localhost';
+  env.no_proxy = env.NO_PROXY;
+  return new Promise((resolveHistory, rejectHistory) => {
+    const child = spawn(codexBinary, ['exec', '--skip-git-repo-check', '--json', '-C', cwd, prompt], {
+      cwd,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += String(chunk); });
+    child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+    const timeout = setTimeout(() => child.kill(), 120_000);
+    child.once('error', (error) => {
+      clearTimeout(timeout);
+      rejectHistory(error);
+    });
+    child.once('exit', (code, signal) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        rejectHistory(new Error(`无法预置 Codex 历史: code=${String(code)} signal=${String(signal)} stderr=${stderr.trim()} stdout=${stdout.trim()}`));
+        return;
+      }
+      const events = stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+      const started = events.find((event) => event.type === 'thread.started');
+      if (typeof started?.thread_id !== 'string' || !started.thread_id) {
+        rejectHistory(new Error(`Codex exec 未返回 Thread 标识: ${stdout}`));
+        return;
+      }
+      resolveHistory({ threadId: started.thread_id, assistantText: historySeedAssistantText(prompt) });
+    });
+  });
 }
 
 async function writeMcpFixture(path) {
@@ -1347,7 +1449,7 @@ function jsonRpcPeer(child) {
 }
 
 async function startResponsesFixture() {
-  const requestBodies = [];
+  const gateRequestBodies = [];
   const server = createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/v1/images/generations') {
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -1363,9 +1465,10 @@ async function startResponsesFixture() {
     }
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
-    requestBodies.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-    const index = requestBodies.length;
-    const events = gateBResponseEvents(index, requestBodies[index - 1]);
+    const requestBody = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const seedEvents = historySeedResponseEvents(requestBody);
+    if (!seedEvents) gateRequestBodies.push(requestBody);
+    const events = seedEvents ?? gateBResponseEvents(gateRequestBodies.length, requestBody);
     if (events.length === 0) {
       response.writeHead(500).end('unexpected extra Responses request');
       return;
@@ -1381,9 +1484,23 @@ async function startResponsesFixture() {
   if (!address || typeof address === 'string') throw new Error('Responses fixture address is unavailable');
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
-    requests: () => [...requestBodies],
+    requests: () => [...gateRequestBodies],
     close: () => new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose())),
   };
+}
+
+function historySeedResponseEvents(requestBody) {
+  const input = JSON.stringify(requestBody.input ?? []);
+  for (const prompt of ['Gate B existing parent-directory conversation.', 'Gate B existing nested-directory conversation.']) {
+    if (input.includes(prompt)) {
+      return assistantResponse(`seed-${createHash('sha256').update(prompt).digest('hex').slice(0, 12)}`, `seed-message-${createHash('sha256').update(prompt).digest('hex').slice(0, 12)}`, historySeedAssistantText(prompt));
+    }
+  }
+  return undefined;
+}
+
+function historySeedAssistantText(prompt) {
+  return prompt.includes('nested-directory') ? 'Existing nested Codex history' : 'Existing parent Codex history';
 }
 
 function gateBResponseEvents(index, requestBody) {

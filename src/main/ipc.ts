@@ -1,4 +1,5 @@
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { BrowserWindow, clipboard, dialog, ipcMain, shell, type OpenDialogOptions } from 'electron';
 
 import { BusinessRpcError } from '@business/index';
@@ -504,7 +505,13 @@ function sameWorkspace(left: string, right: string): boolean {
 
 function normalizedWorkspace(path: string): string {
   const resolved = resolve(path);
-  return process.platform === 'win32' ? resolved.toLocaleLowerCase() : resolved;
+  let normalized = resolved;
+  try {
+    normalized = realpathSync.native(resolved);
+  } catch {
+    // Preserve support for a conversation whose former cwd no longer exists.
+  }
+  return process.platform === 'win32' ? normalized.toLocaleLowerCase() : normalized;
 }
 
 function isImportableConversation(thread: CodexThread): boolean {
