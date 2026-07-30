@@ -1547,8 +1547,10 @@ try {
   const page = pages[0];
   const providerRequests = fixture.requests();
   const shellToolOutput = providerRequests
-    .flatMap((request) => Array.isArray(request.input) ? request.input : [])
-    .find((item) => item?.call_id === 'gate-b-shell-1');
+    .flatMap((request, requestIndex) => (Array.isArray(request.input) ? request.input : [])
+      .map((item) => ({ requestIndex, item })))
+    .find(({ item }) => item?.call_id === 'gate-b-shell-1'
+      && (item?.type === 'custom_tool_call_output' || item?.type === 'function_call_output'));
   const renderer = page ? await page.evaluate(() => ({
     body: document.body.innerText,
     composerDisabled: (document.querySelector('.composer-field textarea'))?.disabled,
@@ -1565,7 +1567,8 @@ try {
       hasToolOutput: JSON.stringify(request.input ?? []).includes('function_call_output')
         || JSON.stringify(request.input ?? []).includes('custom_tool_call_output'),
     })),
-    shellToolOutput,
+    shellToolOutputRequestIndex: shellToolOutput?.requestIndex,
+    shellToolOutput: shellToolOutput?.item,
     renderer,
   })}\n`);
   throw error;
