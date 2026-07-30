@@ -84,7 +84,7 @@ describe('ConversationTimeline', () => {
     expect(container.querySelector('.agent-search-results .agent-json')?.textContent).toContain('rank');
     expect(container.textContent).not.toContain('futureItem');
     expect(container.querySelector('[data-panel="plan"]')?.textContent).toContain('第一步');
-    expect(container.querySelector('[data-panel="diff"]')?.textContent).toContain('@@ turn diff @@');
+    expect(container.querySelector('[data-panel="diff"]')).toBeNull();
     expect(container.querySelector('.agent-turn-usage')?.textContent).toContain('1,234');
     expect(screen.getByRole('log').getAttribute('aria-relevant')).toBe('additions text');
     expect(screen.getByRole('log').getAttribute('aria-atomic')).toBe('false');
@@ -184,19 +184,23 @@ describe('ConversationTimeline', () => {
     expect(container.querySelectorAll('.agent-search-results > li')).toHaveLength(3);
   });
 
-  it('assigns semantic change kinds without deriving file state from diff text', () => {
+  it('opens the changes inspector from a compact file row without rendering inline diff details', () => {
+    const onOpenChanges = vi.fn();
     const fileItem = {
       ...items[6],
       changes: [
-        { path: 'added.ts', kind: 'create', diff: '' },
-        { path: 'updated.ts', kind: 'update', diff: '' },
-        { path: 'deleted.ts', kind: 'delete', diff: '' },
-        { path: 'moved.ts', kind: 'rename', diff: '' },
+        { path: 'src/main.ts', kind: 'update', diff: '@@ -1 +1 @@\n-old\n+new' },
+        { path: 'src/next.ts', kind: 'create', diff: '@@ -0,0 +1 @@\n+next' },
       ],
     } as AgentItemProjection;
-    const { container } = render(<ConversationTimeline turns={[turn({ items: [fileItem] })]} loadState="ready" t={t} />);
+    const { container } = render(<ConversationTimeline turns={[turn({ items: [fileItem] })]} loadState="ready" onOpenChanges={onOpenChanges} t={t} />);
 
-    expect(Array.from(container.querySelectorAll('[data-change-kind]'), (node) => node.getAttribute('data-change-kind'))).toEqual(['added', 'updated', 'deleted', 'moved']);
+    fireEvent.click(container.querySelector('[data-item-type="fileChange"]') as HTMLButtonElement);
+
+    expect(onOpenChanges).toHaveBeenCalledWith('src/main.ts');
+    expect(container.querySelector('[data-item-type="fileChange"] details')).toBeNull();
+    expect(container.textContent).not.toContain('-old');
+    expect(container.textContent).not.toContain('@@ turn diff @@');
   });
 
   it('bounds MCP progress and content while preserving source metadata and both text ends', () => {
@@ -246,20 +250,16 @@ describe('ConversationTimeline', () => {
     expect(container.querySelector('.agent-media-loading')?.textContent).toContain('进行中');
   });
 
-  it('bounds long output and diff previews while preserving both ends', () => {
+  it('bounds long command output while preserving both ends', () => {
     const longOutput = `OUTPUT-START-${'x'.repeat(20_000)}-OUTPUT-END`;
-    const longDiff = `DIFF-START-${'y'.repeat(30_000)}-DIFF-END`;
     const command = { ...items[5], output: longOutput } as AgentItemProjection;
-    const { container } = render(<ConversationTimeline turns={[turn({ items: [command], diff: longDiff })]} loadState="ready" t={t} />);
+    const { container } = render(<ConversationTimeline turns={[turn({ items: [command] })]} loadState="ready" t={t} />);
     const output = container.querySelector('.agent-output pre')?.textContent ?? '';
-    const diff = container.querySelector('[data-panel="diff"] pre')?.textContent ?? '';
 
     expect(output).toContain('OUTPUT-START');
     expect(output).toContain('OUTPUT-END');
     expect(output.length).toBeLessThan(longOutput.length);
-    expect(diff).toContain('DIFF-START');
-    expect(diff).toContain('DIFF-END');
-    expect(diff.length).toBeLessThan(longDiff.length);
+    expect(container.querySelector('[data-panel="diff"]')).toBeNull();
   });
 
   it('does not expose file media URLs to image or audio elements', () => {

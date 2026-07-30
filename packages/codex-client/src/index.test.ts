@@ -13,6 +13,67 @@ describe('CodexClient', () => {
     expect(CODEX_NEW_THREAD_HISTORY_MODE).toBe('paginated');
   });
 
+  it('keeps model discovery and thread setting updates on the native typed envelope', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const writes: string[] = [];
+    stdin.on('data', (chunk) => writes.push(chunk.toString()));
+    const client = new CodexClient({ stdin, stdout });
+
+    const models = client.request('model/list', { cursor: null, limit: 100, includeHidden: false });
+    await new Promise((resolve) => setImmediate(resolve));
+    const modelRequest = JSON.parse(writes.shift()!.trim()) as { id: number; method: string; params: unknown; jsonrpc?: string };
+    expect(modelRequest).toMatchObject({ method: 'model/list', params: { cursor: null, limit: 100, includeHidden: false } });
+    expect(modelRequest.jsonrpc).toBeUndefined();
+    stdout.write(`${JSON.stringify({ id: modelRequest.id, result: { data: [], nextCursor: null } })}\n`);
+    await expect(models).resolves.toEqual({ data: [], nextCursor: null });
+
+    const update = client.request('thread/settings/update', { threadId: 'thread-1', model: 'gpt-5.6', effort: 'xhigh' });
+    await new Promise((resolve) => setImmediate(resolve));
+    const updateRequest = JSON.parse(writes.shift()!.trim()) as { id: number; method: string; params: unknown; jsonrpc?: string };
+    expect(updateRequest).toMatchObject({
+      method: 'thread/settings/update',
+      params: { threadId: 'thread-1', model: 'gpt-5.6', effort: 'xhigh' },
+    });
+    expect(updateRequest.jsonrpc).toBeUndefined();
+    stdout.write(`${JSON.stringify({ id: updateRequest.id, result: {} })}\n`);
+    await expect(update).resolves.toEqual({});
+    client.close();
+  });
+
+  it('keeps Goal, plugin discovery, and collaboration modes on native JSONL envelopes', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const writes: string[] = [];
+    stdin.on('data', (chunk) => writes.push(chunk.toString()));
+    const client = new CodexClient({ stdin, stdout });
+
+    const goal = client.request('thread/goal/set', { threadId: 'thread-1', objective: 'Ship', status: 'active' });
+    await new Promise((resolve) => setImmediate(resolve));
+    const goalRequest = JSON.parse(writes.shift()!.trim()) as { id: number; method: string; params: unknown; jsonrpc?: string };
+    expect(goalRequest).toMatchObject({ method: 'thread/goal/set', params: { threadId: 'thread-1', objective: 'Ship', status: 'active' } });
+    expect(goalRequest.jsonrpc).toBeUndefined();
+    stdout.write(`${JSON.stringify({ id: goalRequest.id, result: {} })}\n`);
+    await expect(goal).resolves.toEqual({});
+
+    const plugins = client.request('plugin/list', { cwds: ['/workspace'] });
+    await new Promise((resolve) => setImmediate(resolve));
+    const pluginRequest = JSON.parse(writes.shift()!.trim()) as { id: number; method: string; params: unknown; jsonrpc?: string };
+    expect(pluginRequest).toMatchObject({ method: 'plugin/list', params: { cwds: ['/workspace'] } });
+    expect(pluginRequest.jsonrpc).toBeUndefined();
+    stdout.write(`${JSON.stringify({ id: pluginRequest.id, result: { marketplaces: [], marketplaceLoadErrors: [], featuredPluginIds: [] } })}\n`);
+    await expect(plugins).resolves.toEqual({ marketplaces: [], marketplaceLoadErrors: [], featuredPluginIds: [] });
+
+    const modes = client.request('collaborationMode/list', {});
+    await new Promise((resolve) => setImmediate(resolve));
+    const modeRequest = JSON.parse(writes.shift()!.trim()) as { id: number; method: string; params: unknown; jsonrpc?: string };
+    expect(modeRequest).toMatchObject({ method: 'collaborationMode/list', params: {} });
+    expect(modeRequest.jsonrpc).toBeUndefined();
+    stdout.write(`${JSON.stringify({ id: modeRequest.id, result: { data: [] } })}\n`);
+    await expect(modes).resolves.toEqual({ data: [] });
+    client.close();
+  });
+
   it('uses the native JSONL envelope without jsonrpc', async () => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();

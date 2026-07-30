@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Aperture,
   BadgeCheck,
@@ -6,13 +6,10 @@ import {
   ChevronDown,
   Clapperboard,
   Folder,
-  FolderPlus,
   ListChecks,
   MessageSquare,
   Mic2,
-  Plus,
   SearchCode,
-  Send,
   ShoppingBag,
   Sparkles,
   WandSparkles,
@@ -20,24 +17,11 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-import type { BusinessProfile, ProjectSummary } from '@business/generated';
-import type { TranslationKey } from './i18n';
-
-interface WorkspaceHomeProps {
-  profiles: BusinessProfile[];
-  projects: ProjectSummary[];
-  selectedProfileId: string;
-  selectedProjectId?: string;
-  composerText: string;
-  submitting: boolean;
-  onProfileSelect: (profileId: string) => void;
-  onComposerTextChange: (text: string) => void;
-  onProjectSelect: (projectId: string | undefined) => void;
-  onProjectBrowse: () => void;
-  onSubmit: () => void;
-  text: (key: string, fallback: string) => string;
-  t: (key: TranslationKey) => string;
-}
+import type { BusinessProfile } from '@business/generated';
+import { ConversationComposer } from '../../ConversationComposer';
+import { createTranslator as createShellTranslator } from '../../i18n';
+import { createTranslator, isTranslationKey, type TranslationKey } from './i18n';
+import type { ProductHomeContext } from '../types';
 
 const profileIcons: Record<string, LucideIcon> = {
   general: Sparkles,
@@ -59,24 +43,34 @@ const suggestions: Array<{
   { label: 'home.suggestion.repair', prompt: 'home.suggestion.repairPrompt', icon: Wrench, tone: 'orange' },
 ];
 
-export function WorkspaceHome({
-  profiles,
-  projects,
-  selectedProfileId,
-  selectedProjectId,
+export function ProductionHome({
+  locale,
+  workspaces,
+  selectedWorkspaceId,
   composerText,
-  submitting,
-  onProfileSelect,
+  composerAttachments,
+  composerCapabilities,
+  composerMode,
+  modelSettings,
   onComposerTextChange,
-  onProjectSelect,
-  onProjectBrowse,
+  onComposerAttachmentsChange,
+  onComposerCapabilitiesChange,
+  onComposerModeChange,
+  onModelSettingsChange,
+  onWorkspaceSelect,
+  onWorkspaceOpened,
   onSubmit,
-  text,
-  t,
-}: WorkspaceHomeProps) {
+}: ProductHomeContext) {
+  const t = useMemo(() => createTranslator(locale), [locale]);
+  const shellT = useMemo(() => createShellTranslator(locale), [locale]);
+  const [profiles, setProfiles] = useState<BusinessProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState('general');
+  const [openingProject, setOpeningProject] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>();
   const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId) ?? profiles[0];
-  const selectedProject = projects.find((project) => project.projectId === selectedProjectId);
-  const canSubmit = composerText.trim().length > 0 && !submitting;
+  const selectedProject = workspaces.find((workspace) => workspace.workspaceId === selectedWorkspaceId);
+  const hasComposerInput = composerText.trim().length > 0 || composerAttachments.length > 0 || composerCapabilities.length > 0;
+  const canSubmit = hasComposerInput && (composerMode !== 'goal' || composerText.trim().length > 0) && !openingProject;
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const composerRef = useRef<HTMLElement>(null);
@@ -84,6 +78,22 @@ export function WorkspaceHome({
   const homeTitle = selectedProject
     ? t('home.projectTitle').replace('{project}', selectedProject.name)
     : t('home.title');
+
+  useEffect(() => {
+    let disposed = false;
+    void window.limeShot.foundation.read()
+      .then((foundation) => {
+        if (disposed) return;
+        setProfiles(foundation.profiles);
+        setSelectedProfileId((current) => foundation.profiles.some((profile) => profile.profileId === current)
+          ? current
+          : foundation.profiles[0]?.profileId ?? 'general');
+      })
+      .catch((error) => {
+        if (!disposed) setErrorMessage(error instanceof Error ? error.message : t('home.serviceUnavailable'));
+      });
+    return () => { disposed = true; };
+  }, [t]);
 
   useEffect(() => {
     if (!addMenuOpen && !profileMenuOpen) return undefined;
@@ -108,9 +118,24 @@ export function WorkspaceHome({
   }, [addMenuOpen, profileMenuOpen]);
 
   const selectProject = (projectId: string | undefined) => {
-    onProjectSelect(projectId);
-    setAddMenuOpen(false);
+    onWorkspaceSelect(projectId);
   };
+
+  const openProjectDirectory = async () => {
+    if (openingProject) return;
+    setOpeningProject(true);
+    setErrorMessage(undefined);
+    try {
+      const result = await window.limeShot.project.open({ profileId: selectedProfile?.profileId ?? 'general', language: locale });
+      if (result) await onWorkspaceOpened(result.project.projectId);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : t('project.openFailed'));
+    } finally {
+      setOpeningProject(false);
+    }
+  };
+
+  const text = (key: string, fallback: string) => isTranslationKey(key) ? t(key) : fallback;
 
   return (
     <section className="home-workspace" data-testid="home-workspace">
@@ -140,34 +165,6 @@ export function WorkspaceHome({
         </div>
 
         <section className="home-composer" ref={composerRef}>
-          {addMenuOpen ? (
-            <div className="composer-add-popover" role="menu" aria-label={t('home.add')} data-testid="composer-add-menu">
-              <span className="composer-menu-label">{t('home.add')}</span>
-              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); onProjectBrowse(); }}>
-                <FolderPlus size={15} aria-hidden="true" />
-                <span><strong>{t('home.openFolder')}</strong><small>{t('home.openFolderHint')}</small></span>
-              </button>
-              <span className="composer-menu-label">{t('nav.projects')}</span>
-              <button type="button" role="menuitem" data-selected={!selectedProjectId ? 'true' : 'false'} onClick={() => selectProject(undefined)}>
-                <MessageSquare size={15} aria-hidden="true" />
-                <span><strong>{t('home.noProject')}</strong><small>{t('home.noProjectHint')}</small></span>
-                {!selectedProjectId ? <Check size={14} aria-hidden="true" /> : null}
-              </button>
-              {projects.map((project) => (
-                <button
-                  type="button"
-                  role="menuitem"
-                  data-selected={selectedProjectId === project.projectId ? 'true' : 'false'}
-                  onClick={() => selectProject(project.projectId)}
-                  key={project.projectId}
-                >
-                  <Folder size={15} aria-hidden="true" />
-                  <span><strong>{project.name}</strong><small>{project.workspaceName}</small></span>
-                  {selectedProjectId === project.projectId ? <Check size={14} aria-hidden="true" /> : null}
-                </button>
-              ))}
-            </div>
-          ) : null}
           {profileMenuOpen ? (
             <div className="composer-profile-popover" role="menu" aria-label={t('home.sectionTitle')} data-testid="profiles-menu">
               <span className="composer-menu-label">{t('home.sectionTitle')}</span>
@@ -183,7 +180,7 @@ export function WorkspaceHome({
                     data-selected={selected ? 'true' : 'false'}
                     data-testid={`profile-${profile.profileId}`}
                     onClick={() => {
-                      onProfileSelect(profile.profileId);
+                      setSelectedProfileId(profile.profileId);
                       setProfileMenuOpen(false);
                     }}
                   >
@@ -209,61 +206,61 @@ export function WorkspaceHome({
             <span>{selectedProject?.name ?? t('home.noProject')}</span>
             <ChevronDown size={13} aria-hidden="true" />
           </button>
-          <div className="home-composer-field">
-            <textarea
-              ref={inputRef}
-              autoFocus
-              value={composerText}
-              onChange={(event) => onComposerTextChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey && canSubmit) {
-                  event.preventDefault();
-                  onSubmit();
-                }
-              }}
-              placeholder={t('home.composerPlaceholder')}
-              aria-label={t('home.composerLabel')}
-            />
-            <footer>
-              <div className="composer-tools">
-                <button
-                  className="composer-add-button"
-                  type="button"
-                  aria-expanded={addMenuOpen}
-                  aria-label={t('home.add')}
-                  title={t('home.add')}
-                  onClick={() => {
-                    setProfileMenuOpen(false);
-                    setAddMenuOpen((current) => !current);
-                  }}
-                >
-                  <Plus size={17} aria-hidden="true" />
-                </button>
-                {selectedProfile ? (
-                  <button
-                    className="home-profile-context"
-                    type="button"
-                    aria-expanded={profileMenuOpen}
-                    onClick={() => {
-                      setAddMenuOpen(false);
-                      setProfileMenuOpen((current) => !current);
-                    }}
-                  >
-                    <Sparkles size={14} aria-hidden="true" />
-                    <span>{text(selectedProfile.nameKey, selectedProfile.profileId)}</span>
-                    <ChevronDown size={13} aria-hidden="true" />
-                  </button>
-                ) : null}
-              </div>
-              <div className="composer-actions">
-                <button className="home-send-button" type="button" disabled={!canSubmit} onClick={onSubmit} title={t('agent.send')}>
-                  <Send size={17} aria-hidden="true" />
-                </button>
-              </div>
-            </footer>
-          </div>
+          <ConversationComposer
+            surface="home"
+            context={{ projectId: selectedWorkspaceId ?? null }}
+            text={composerText}
+            attachments={composerAttachments}
+            capabilities={composerCapabilities}
+            mode={composerMode}
+            disabled={openingProject}
+            canSubmit={canSubmit}
+            placeholder={t('home.composerPlaceholder')}
+            inputLabel={t('home.composerLabel')}
+            modelSettings={modelSettings}
+            projects={workspaces.map((workspace) => ({
+              id: workspace.workspaceId,
+              label: workspace.name,
+              description: workspace.workspaceLabel,
+            }))}
+            selectedProjectId={selectedWorkspaceId}
+            inputRef={inputRef}
+            autoFocus
+            addMenuOpen={addMenuOpen}
+            projectOpening={openingProject}
+            leadingControls={selectedProfile ? (
+              <button
+                className="home-profile-context"
+                type="button"
+                aria-expanded={profileMenuOpen}
+                onClick={() => {
+                  setAddMenuOpen(false);
+                  setProfileMenuOpen((current) => !current);
+                }}
+              >
+                <Sparkles size={14} aria-hidden="true" />
+                <span>{text(selectedProfile.nameKey, selectedProfile.profileId)}</span>
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+            ) : null}
+            onAddMenuOpenChange={(open) => {
+              setAddMenuOpen(open);
+              if (open) setProfileMenuOpen(false);
+            }}
+            onTextChange={onComposerTextChange}
+            onAttachmentsChange={onComposerAttachmentsChange}
+            onCapabilitiesChange={onComposerCapabilitiesChange}
+            onModeChange={onComposerModeChange}
+            onModelSettingsChange={onModelSettingsChange}
+            onProjectSelect={selectProject}
+            onProjectOpen={() => void openProjectDirectory()}
+            onSubmit={onSubmit}
+            onError={setErrorMessage}
+            t={shellT}
+          />
         </section>
       </div>
+      {errorMessage ? <div className="production-home-error" role="alert">{errorMessage}</div> : null}
     </section>
   );
 }

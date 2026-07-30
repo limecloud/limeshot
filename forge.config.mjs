@@ -41,7 +41,7 @@ const config = {
     appBundleId: 'ai.limecloud.limeshot',
     appCategoryType: 'public.app-category.video',
     icon: appIcon,
-    asar: true,
+    asar: { unpack: '**/node-pty/{build,prebuilds}/**' },
     osxSign: process.platform === 'darwin' ? {
       identity: signingIdentity,
       identityValidation: !adHocSigning,

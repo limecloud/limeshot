@@ -1,11 +1,11 @@
 # Codex Desktop 全量 UI 对齐规范
 
 状态：`current design source`
-日期：`2026-07-29`
+日期：`2026-07-30`
 
 ## 1. 目标
 
-LimeShot 的桌面壳、导航、首页、对话时间线、全部 Codex 投影、阻塞交互、业务检查器和响应式行为必须使用同一套 Codex Desktop 风格视觉语法。对齐对象是信息架构、密度、层级、交互反馈和状态节奏，不复制第三方品牌、图标或专有资源。
+LimeShot 的桌面壳、导航、对话时间线、全部 Codex 投影、阻塞交互、产品 extension workspace 和响应式行为必须使用同一套 Codex Desktop 风格视觉语法。对齐对象是信息架构、密度、层级、交互反馈和状态节奏，不复制第三方品牌、图标或专有资源。
 
 功能完整度与视觉完整度分开计算。`xuanlan-conversation-projection-progress.md` 的完成只证明协议和交互主链可用；本规范的完成必须由真实 Electron 截图和交互 Gate 证明。
 
@@ -38,16 +38,26 @@ LimeShot 的桌面壳、导航、首页、对话时间线、全部 Codex 投影�
 | --- | --- | --- |
 | `webview/assets/app-D4iDTyKa.css` | Electron surface、全局 token、字体、toolbar、sidebar、thread、diff | `styles.css` |
 | `webview/assets/app-initial-Czet5G9g.css` | Markdown、composer utility bar、早期加载样式 | `styles.css`、`ConversationTimeline.tsx` |
-| `webview/assets/app-main-BP5-48gp.js` | Desktop shell、home、thread、projection 组合 | `App.tsx`、`WorkspaceHome.tsx` |
+
+### 2.3 Composer 模型菜单截图基线
+
+2026-07-30 用户提供了真实 Codex Desktop 的模型与推理强度菜单截图，固定以下事实：
+
+- Composer footer 使用一个紧凑触发器同时显示当前模型与推理强度。
+- 点击后先打开“模型 / 推理强度”一级菜单，当前值位于行尾；对应选项在右侧二级菜单展开，当前项使用勾选态。
+- 型号集合不是 UI 常量，必须来自 Codex `model/list`；推理强度只显示所选模型的 `supportedReasoningEfforts`。
+- 当前 Thread 设置来自 start/resume 响应和 settings notification；若当前型号不在非隐藏目录仍显示真实型号，空 effort 显示“默认”，但不能向上游补造 effort。
+- 选择 model 或 effort 后通过 Thread settings 更新，活动 Turn、只读子线程、archived/deleted/closed Thread 均不可修改。
+| `webview/assets/app-main-BP5-48gp.js` | Desktop shell、home、thread、projection 组合 | `App.tsx`、`extensions/production/ProductionHome.tsx` |
 | `thread-app-shell-chrome-DLtp8zjL.js` | Thread header/chrome | `App.tsx` |
 | `thread-scroll-layout-BywaziyM.js` | Thread scroll/content column | `ConversationTimeline.tsx` |
 | `local-conversation-thread-Bj5uKwgs.js` | 本地 thread 组合和状态 | `ConversationTimeline.tsx` |
-| `composer-utility-bar-Bj52tH4x.js` | Composer footer/utility actions | `WorkspaceHome.tsx`、`App.tsx` |
-| `composer-project-selector-D3thiXO7.js` | Project context selector | `WorkspaceHome.tsx`、`App.tsx` |
+| `composer-utility-bar-Bj52tH4x.js` | Composer footer/utility actions | `extensions/production/ProductionHome.tsx`、`App.tsx` |
+| `composer-project-selector-D3thiXO7.js` | Project context selector | `extensions/production/ProductionHome.tsx`、`App.tsx` |
 | `file-diff-*`、`diff-*` | Diff row、统计和展开 surface | `ConversationTimeline.tsx` |
 | `subagent-panel-f_gsLZAq.js` | Multi-Agent secondary surface | `ConversationTimeline.tsx`、activity inspector |
 
-固定版本的 Activity 实现还确认了三条不能退化的事实：`reasoning` 只把 `summary` 投影到可见时间线，不投影 raw `content`；completed Tool/Search/Shell/Diff 先形成单行、可截断的 activity summary，再通过 disclosure 展开详情；`commandExecution` 按上游结构化 action 拆分可读摘要，`fileChange` 使用结构化 changes snapshot，不能从 command/diff 文本重新猜测语义。
+固定版本的 Activity 实现还确认了三条不能退化的事实：`reasoning` 只把 `summary` 投影到可见时间线，不投影 raw `content`；completed Tool/Search/Shell 先形成单行、可截断的 activity summary，再通过 disclosure 展开详情，`fileChange` 行则进入 Review 工作区；`commandExecution` 按上游结构化 action 拆分可读摘要，`fileChange` 使用结构化 changes snapshot，不能从 command/diff 文本重新猜测语义。
 
 ## 3. 唯一 UI 所有权
 
@@ -57,17 +67,22 @@ Renderer semantic state
        -> NavigationRail
        -> WorkspaceHeader
        -> PrimaryWorkspace
-            -> HomeWorkspace | ConversationViewport
+            -> ConversationViewport
             -> PendingInteraction
             -> Composer
-       -> ContextInspector
+       -> ConversationReview(Diff + FileTree)
+       -> ConversationStatusSurface(Activity popover)
+  -> ProductExtensionHost
+       -> ProductionHome | ProductionWorkspace
   -> shared design tokens and primitives
 ```
 
 - `AppShell` 是窗口布局和响应式的唯一 owner。
 - `ConversationTimeline` 按原始 Item 顺序渲染消息、活动行和 Turn 终态。
 - `PendingInteractions` 是所有 reverse request 的唯一可操作表面。
-- `ContextInspector` 承载活动与项目业务事实，不复制时间线内容。
+- `ConversationReview` 只承载当前 Codex 会话的文件 Diff 和最右文件树；`ConversationStatusSurface` 只在对话列内独立显示 Activity，不与 Review 或产品业务组合。
+- `ExtensionHost` 通过静态可信 registry 装配产品 surface；`extensions/production/**` 独立拥有 Home、Project、Brief、Plan、Execution、Task、Artifact 与 Deliverable。
+- 核心壳只把 workspace 摘要和 locale 作为宿主上下文传给 extension；业务详情由 extension 通过 typed semantic API 获取。
 - Renderer 不增加第二套 Agent 状态、history 或工具执行逻辑。
 
 ## 4. 全量对齐矩阵
@@ -77,7 +92,8 @@ Renderer semantic state
 | Window | 原生标题区、安全区、窗口拖拽区、聚焦/失焦、桌面与窄窗 |
 | Navigation | 品牌、创建会话、搜索、最近、项目组、独立会话、选中、hover、项目/对话菜单、归档/删除确认、运行时状态 |
 | Home | 空工作区、Profile 选择、Project 选择、新 Project、初始 Composer、加载与错误 |
-| Header | 侧栏开关、会话标题、Activity、Project inspector、只读子线程 |
+| Composer settings | 当前 model/effort、动态目录、两级菜单、选中、loading/error、只读与 active Turn disabled、窄窗 containment |
+| Header | 侧栏开关、会话标题、Changes/Activity、独立“审阅”标签、extension workspace 关闭、只读子线程 |
 | User message | 文本、图片、音频、Skill、Mention、长文本与混合输入 |
 | Assistant | streaming、completed、Markdown、citation、phase、空 delta |
 | Reasoning | streaming、summary、raw content、耗时、完成与失败 |
@@ -92,19 +108,24 @@ Renderer semantic state
 | Boundaries | review boundary、context compaction、sleep、hook prompt、unknown item |
 | Interaction | command/file/permission approval、user input、MCP form/url、队列、提交、终态 |
 | Status | thread、goal、token、hook、review、MCP startup、catalog、realtime、notice、diagnostic |
-| Business | Project overview、Brief、Plan approval、Execution、Task、Artifact、Deliverable |
+| Product extension | Project overview、Brief、Plan approval、Execution、Task、Artifact、Deliverable、独立 workspace loading/error |
 | Feedback | loading、empty、offline、error、retry、toast、disabled、focus、reduced motion |
 
 ## 5. 视觉语法
 
 ### 5.1 骨架
 
-- 桌面保持左侧导航、中央主工作区和可选右侧检查器。
+- 桌面审阅态保持“左侧导航 -> 固定宽度对话列 -> 大面积 Diff -> 最右文件树”，Review 是主工作区模式，不是把内容纵向塞入窄右栏。
+- Review 默认关闭；对话工具栏的“变更”是显式开关并显示当前会话增删统计，时间线 `fileChange` 行是带目标文件的上下文入口，点击后直接打开 Review 并选中该文件。顶部以独立“审阅”标签标识当前模式并提供关闭动作。
+- Review 内按“Diff 主区 -> 最右文件导航”横向组织。文件导航按路径树展示并支持筛选，选中文件后 Diff 主区显示 hunk、旧/新行号和增删语义色；时间线不展开 file diff 或 Turn aggregate diff。`fileChange.changes[]` 是文件列表事实源，Turn aggregate diff 只在缺少结构化文件快照时作为只读 fallback。
+- Review 不显示 Environment/Runtime，也不得出现 Project、Profile、Brief、Plan、Execution、Task、Artifact 或 Deliverable。Activity 使用对话列内独立浮层；项目编辑从导航进入 production extension workspace，关闭后回到核心 Home。
+- 尚无 semantic owner 的 branch、commit/push 和 compare action 不得用硬编码或 Renderer shell 伪造。
 - Home desktop 使用约 `576px` 的项目语境内容列，四个功能建议保持单行，Composer 固定在内容区底部；窄窗允许建议改为两列。
 - Thread 主内容列使用 `48rem`；Markdown 自身正文可以收窄到 `40rem`，wide block 上限为 `56rem`。工具展开不能改变 thread 列宽。
-- 窄于 `900px` 时右侧检查器变为覆盖抽屉，避免检查器将对话主列压缩到不可读宽度。
+- 窄于 `1180px` 时 Review 替换对话列成为专用审阅视图，保留 Diff 与最右文件树；窄于 `680px` 时文件树收敛为顶部文件选择器。
 - 窄于 `680px` 时侧栏默认退出布局并作为覆盖抽屉；主工作区保持单栏。
 - Header、timeline 和 Composer 使用同一水平内容基线。
+- Thread Composer 左下模型触发器显示 Codex semantic settings；一级菜单与右侧二级菜单保持紧凑层级，未知或不支持的推理强度不得由 Renderer 补造。
 
 ### 5.2 密度和层级
 
@@ -152,10 +173,10 @@ Renderer semantic state
 
 ### current
 
-- `App.tsx` 的 semantic state 与 gateway 调用。
-- `AppSidebar`、`WorkspaceHome`、`ConversationTimeline`、`PendingInteractions`、`ConversationStatusSurface`。
-- `PlanPanel`、`ExecutionPanel` 和 `McpElicitationForm` 的业务/交互行为。
-- 单一设计令牌与组件样式入口。
+- `App.tsx`、`AppSidebar`、`ConversationTimeline`、`PendingInteractions`、`ConversationReview`、`ConversationStatusSurface` 的核心壳与 Codex semantic projection。
+- `extensions/{types,registry,ExtensionHost}.tsx?` 的静态可信产品 extension 装配边界。
+- `extensions/production/**` 的 Production Home、Workspace、Brief、Plan、Execution、业务文案和业务样式。
+- 核心 `styles.css`/`i18n.ts` 与 production extension 本地样式/文案分别拥有各自 surface，不交叉保存业务 selector 或文案。
 
 ### compat
 
@@ -167,6 +188,9 @@ Renderer semantic state
 
 ### dead
 
+- 根 Renderer 下旧 `WorkspaceHome`、`ProjectOverview`、`PlanPanel`、`ExecutionPanel` 组件及其旧测试和样式。
+- 核心 Project Inspector、`project-inspector` selector 与 `project.openDetails|closeDetails` 文案。
+- 组合 Activity、Changes、Environment、Runtime 的 `ConversationInspector` 及 `workspace-inspector` / `conversation-inspector` selector。
 - 未引用组件、selector、文案和测试 fixture。
 - 高饱和蓝色用户气泡、渐变首页 banner、彩色 Profile 卡片网格。
 - 将工具结果默认完整展开的布局规则。
@@ -179,7 +203,7 @@ Renderer semantic state
 
 - 统一设计令牌、字体、控件状态和焦点。
 - 对齐 App shell、侧栏、Header、内容列、时间线、User/Assistant 和 Composer。
-- 修正窄屏单栏、侧栏抽屉和检查器覆盖层。
+- 修正窄屏单栏、侧栏抽屉和专用 Review 视图。
 - 删除首页营销式 hero 与装饰卡片网格；保留真实 Codex Home 的四项可执行 prompt starter，首页直接进入真实工作区。
 
 ### P1：全部 Agent 投影
@@ -190,7 +214,7 @@ Renderer semantic state
 
 ### P2：业务与全局状态
 
-- 对齐 Project/Brief/Plan/Execution/Artifact/Deliverable 检查器。
+- 在 production extension workspace 内对齐 Project/Brief/Plan/Execution/Artifact/Deliverable；不得回流到核心 Review 或 Activity surface。
 - 对齐活动状态、catalog、hook、review、notice、diagnostic 和 realtime。
 - 补空态、错误态、loading、offline、toast、键盘与 reduced motion。
 

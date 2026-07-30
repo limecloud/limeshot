@@ -1,0 +1,35 @@
+.composer-add-control { display: inline-flex; flex: 0 0 auto; }
+.composer-add-trigger { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; color: var(--text-secondary); background: transparent; cursor: pointer; }
+.composer-add-trigger:hover, .composer-add-trigger[aria-expanded="true"] { color: var(--text); background: var(--surface-muted); }
+.composer-add-trigger:disabled { cursor: default; opacity: 0.42; }
+.composer-add-menu-layer { position: absolute; z-index: 18; right: 0; bottom: calc(100% + 8px); left: 0; }
+.composer-add-menu { display: grid; width: 100%; max-height: min(430px, 54vh); padding: 7px; overflow-y: auto; border: 0.5px solid var(--border-strong); border-radius: 14px; color: var(--text); background: var(--surface); box-shadow: var(--elevation-prominent); }
+.composer-add-menu-label { min-height: 25px; padding: 7px 7px 3px; color: var(--text-muted); font-size: 11px; }
+.composer-add-menu-item, .composer-add-menu-back, .composer-add-retry { display: grid; grid-template-columns: 19px minmax(0, 1fr) 16px; align-items: center; gap: 7px; width: 100%; min-height: 31px; padding: 5px 7px; border: 0; border-radius: 8px; color: var(--text-secondary); background: transparent; text-align: left; cursor: pointer; }
+.composer-add-menu-item:hover, .composer-add-menu-item[data-selected="true"], .composer-add-menu-back:hover, .composer-add-retry:hover { color: var(--text); background: var(--surface-muted); }
+.composer-add-menu-item:disabled { cursor: default; opacity: 0.42; }
+.composer-add-menu-item > span { display: flex; min-width: 0; align-items: baseline; gap: 7px; overflow: hidden; }
+.composer-add-menu-item strong, .composer-add-menu-item small, .composer-add-menu-back strong, .composer-capture-source span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-add-menu-item strong, .composer-add-menu-back strong { color: inherit; font-size: 12px; font-weight: 500; }
+.composer-add-menu-item small { color: var(--text-muted); font-size: 11px; }
+.composer-add-menu-back { grid-template-columns: 19px minmax(0, 1fr); margin-bottom: 3px; border-bottom: 0.5px solid var(--border); border-radius: 8px 8px 0 0; }
+.composer-add-menu-back > svg { transform: rotate(180deg); }
+.composer-add-menu-status { display: flex; min-height: 34px; align-items: center; gap: 7px; padding: 6px 8px; color: var(--text-muted); font-size: 11px; }
+.composer-add-retry { grid-template-columns: 19px minmax(0, 1fr); }
+.composer-capture-source { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 9px; min-height: 48px; padding: 5px 7px; border: 0; border-radius: 8px; color: var(--text-secondary); background: transparent; text-align: left; cursor: pointer; }
+.composer-capture-source:hover { color: var(--text); background: var(--surface-muted); }
+.composer-capture-source:disabled { cursor: default; opacity: 0.48; }
+.composer-capture-source img { width: 64px; height: 40px; border: 0.5px solid var(--border); border-radius: 5px; object-fit: cover; }
+.composer-capture-source span { font-size: 12px; }
+.composer-selections { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px; padding: 8px 9px 0; }
+.composer-selection-chip { display: inline-flex; min-width: 0; max-width: 220px; height: 28px; align-items: center; gap: 6px; padding: 0 3px 0 7px; border: 0.5px solid var(--border); border-radius: 8px; color: var(--text-secondary); background: var(--surface-muted); font-size: 11px; }
+.composer-selection-chip > img { width: 22px; height: 18px; border-radius: 3px; object-fit: cover; }
+.composer-selection-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-selection-chip > button { display: grid; flex: 0 0 auto; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; color: var(--text-muted); background: transparent; cursor: pointer; }
+.composer-selection-chip > button:hover { color: var(--text); background: var(--surface-hover); }
+
+@media (max-width: 420px) {
+  .composer-add-menu { max-height: min(390px, 52vh); }
+  .composer-add-menu-item > span { display: grid; gap: 1px; }
+  .composer-add-menu-item { min-height: 36px; }
+}

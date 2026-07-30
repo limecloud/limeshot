@@ -1,13 +1,22 @@
 # LimeShot 全局架构
 
 状态：`current / v1 implementation`
-更新日期：`2026-07-28`
+更新日期：`2026-07-30`
 
 ## 唯一产品链
 
 ```mermaid
 flowchart LR
-    UI[Renderer 业务工作台] --> PRE[Preload typed API]
+    subgraph RENDERER[Electron Renderer]
+        SHELL[Core Shell / Codex Surfaces]
+        EXTENSION[Static Product Extension Host]
+        PRODUCTION[Production Extension]
+        SHELL --> EXTENSION
+        EXTENSION --> PRODUCTION
+    end
+
+    SHELL --> PRE[Preload typed API]
+    PRODUCTION --> PRE
     PRE --> HOST[Electron Main]
 
     HOST <--> CODEX[Managed Codex App Server]
@@ -27,7 +36,7 @@ flowchart LR
 
     CODEX -->|native events| HOST
     BUSINESS -->|business events| HOST
-    HOST --> UI
+    HOST --> PRE
 ```
 
 Electron main 同时监管两个互不替代的后端：
@@ -36,6 +45,34 @@ Electron main 同时监管两个互不替代的后端：
 2. Rust Business Service：唯一产品业务后端，使用 LimeShot 标准 JSON-RPC 2.0 协议。
 
 Electron 只路由、投影和提供桌面能力；Rust 不包装 Codex，Codex 不直接拥有业务数据库或 Provider 凭证。
+
+## Renderer Extension Boundary
+
+Renderer 分成核心桌面壳和产品 extension 两层，两层都只能消费 preload 暴露的 typed semantic API：
+
+```text
+Core Shell
+  -> AppSidebar
+  -> ConversationTimeline
+  -> PendingInteractions
+  -> Composer / ConversationModelMenu
+  -> ConversationReview(Diff workspace / File tree)
+  -> ConversationStatusSurface(Activity popover)
+
+Product Extension Host
+  -> registry
+  -> production
+       -> ProductionHome
+       -> ProductionWorkspace
+            -> Brief / Plan / Execution / Artifact / Deliverable
+```
+
+- 核心壳只拥有窗口布局、导航、Codex 会话投影、阻塞交互、Composer、模型/推理强度选择、Review 工作区和独立 Activity 浮层。`ConversationModelMenu` 只消费 typed semantic API，目录来自 Codex `model/list`，设置通过 `thread/settings/update` 并由 `thread/settings/updated` 收敛；Rust Business Service 与产品 extension 不拥有模型状态。Review 默认关闭；时间线 `fileChange` 行与工具栏“变更”只发出打开意图，文件选择、文件树和 diff 仅由 `ConversationReview` 拥有。Review 不承载 Environment/Runtime 状态，更不得承载 Project、Brief、Plan、Task、Artifact 或 Deliverable 业务界面。
+- `src/renderer/src/extensions/{types,registry,ExtensionHost}.tsx?` 是静态可信 extension 装配边界；它只定义宿主上下文和选择组件，不拥有业务状态、协议或后端。
+- `src/renderer/src/extensions/production/**` 是当前生产业务 UI 的唯一 owner，拥有独立 Home、Workspace、业务文案和样式。业务编辑打开独立主工作区，不挤入核心 Review 或 Activity surface。
+- 核心可持有 `ProjectSummary` 作为侧栏导航和 Conversation scope 的不透明摘要；Project detail、Profile、Brief、Plan、Execution 与媒体业务状态必须在 production extension 内加载和投影。
+- extension 不得调用 raw Codex/Rust method，不得读取文件路径或启动进程；所有能力仍经 preload typed gateway、Electron main 和既有后端 owner。
+- 当前不建设可下载第三方插件、动态代码加载、权限沙箱或独立插件协议。新增产品 extension 只能显式注册并随应用构建，直到真实需求证明需要更复杂的插件系统。
 
 ## Agent Runtime Non-Reimplementation Contract
 
@@ -63,7 +100,9 @@ LimeShot 允许的代码只有：固定版本 protocol client、进程 superviso
 | Provider / cost / remote tasks | `rust/crates/providers/**` |
 | FFprobe / FFmpeg jobs | `rust/crates/media/**` |
 | Artifact contracts / lineage | `rust/crates/artifacts/**` |
-| User projection | `src/renderer/**` |
+| Renderer core shell / Codex projection / review workspace | `src/renderer/src/{App,AppSidebar,ConversationTimeline,ConversationModelMenu,PendingInteractions,ConversationReview,ConversationStatusSurface}.tsx` 及核心样式/文案 |
+| Renderer product extension host | `src/renderer/src/extensions/{types,registry,ExtensionHost}.tsx?` |
+| Production business projection | `src/renderer/src/extensions/production/**` |
 
 ## Data Ownership
 
@@ -184,6 +223,10 @@ sequenceDiagram
 - [x] Rust 只保存 Project 与 Codex Thread 的标识绑定。
 - [x] Codex reverse request 经 Electron 路由到 Rust ToolHost。
 - [x] Renderer 只消费 semantic projection。
+- [x] Renderer 核心壳与 production extension 已分离；核心 Review 只拥有 Diff 与文件树，Activity 由对话内独立浮层拥有。
+- [x] 模型目录与 Thread model/effort 设置归 Codex；Renderer 只走 typed semantic API，Rust 业务层与 extension 不绑定该能力。
+- [x] Project、Profile、Brief、Plan、Execution、Artifact 与 Deliverable 业务 UI 只由 `extensions/production/**` 拥有，项目编辑进入独立 extension workspace。
+- [x] Extension host 采用随应用构建的静态可信 registry；不引入动态第三方代码加载、第二套协议或第二个业务后端。
 - [x] 不引入 Tauri、生产 mock、系统 PATH fallback或参考应用资源依赖。
 - [x] direct Codex + Rust business 双进程 Gate B 技术证据已完成，包含 `project_read`、`plan_create`、GUI 审批、`ApprovalReceipt`、多项目同名默认会话、空会话冷启动恢复与历史恢复。
 - [x] 首个 `media_probe` 竖切通过真实 Electron Gate B：系统文件选择、受管 workspace 复制、结构化进程 argv、Task/Job/Artifact 持久化、lineage 与完整重启恢复均有证据。

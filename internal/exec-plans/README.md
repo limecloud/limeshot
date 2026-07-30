@@ -15,6 +15,7 @@
 - `v1-implementation.md`：v1 产品与业务主链。
 - `xuanlan-conversation-projection-progress.md`：Codex Conversation 全量投影进度。
 - `xuanlan-codex-desktop-ui-progress.md`：Codex Desktop GUI parity 进度。
-- `v0.4.0-release.md`：当前 v0.4.0 双平台发布候选与发布 evidence owner。
+- `v0.5.0-release.md`：当前 v0.5.0 Workspace、模型设置与双平台发布 evidence owner。
+- `v0.4.0-release.md`：v0.4.0 双平台发布的历史 evidence owner。
 - `v0.3.0-windows-release.md`：v0.3.0 的 Windows 缺口及并入 v0.4.0 的历史记录。
 - `repository-agent-governance.md`：仓库规则、prompts 与项目 skills 治理迁移。

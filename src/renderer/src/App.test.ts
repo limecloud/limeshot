@@ -34,6 +34,15 @@ const executionApi = {
   execution: { read: vi.fn(async () => ({ sourceAssets: [], taskRuns: [], mediaJobs: [], artifacts: [], deliverables: [] })) },
   task: { start: vi.fn(), cancel: vi.fn(), retry: vi.fn() },
   deliverable: { confirm: vi.fn() },
+  workspace: {
+    context: { read: vi.fn(async () => ({ rootName: 'workspace', location: 'local' as const, branch: 'main' })) },
+    files: { list: vi.fn(), read: vi.fn(), reveal: vi.fn() },
+    terminal: { start: vi.fn(), write: vi.fn(), resize: vi.fn(), close: vi.fn(), subscribe: vi.fn(() => () => undefined) },
+    browser: {
+      open: vi.fn(), navigate: vi.fn(), back: vi.fn(), forward: vi.fn(), reload: vi.fn(), setBounds: vi.fn(), close: vi.fn(),
+      subscribe: vi.fn(() => () => undefined),
+    },
+  },
 };
 
 const projectManagementApi = () => ({
@@ -43,6 +52,16 @@ const projectManagementApi = () => ({
 });
 
 const conversationImportApi = () => ({
+  composerCatalog: vi.fn(async () => ({ capabilities: [], planModeAvailable: true, pluginLoadFailed: false })),
+  pickAttachments: vi.fn(async () => []),
+  listCaptureSources: vi.fn(async () => []),
+  captureSource: vi.fn(),
+  listModels: vi.fn(async () => ({ models: [{
+    id: 'model-54', model: 'gpt-5.4', displayName: '5.4', description: '',
+    supportedReasoningEfforts: [{ effort: 'medium', description: '' }, { effort: 'xhigh', description: '' }],
+    defaultReasoningEffort: 'medium', isDefault: true,
+  }] })),
+  updateThreadSettings: vi.fn(async () => undefined),
   listImportCandidates: vi.fn(async () => []),
   importConversation: vi.fn(),
   renameConversation: vi.fn(),
@@ -54,6 +73,12 @@ const conversationImportApi = () => ({
   listProjectConversations: vi.fn(async () => ({ conversations: [] })),
   archiveProjectConversations: vi.fn(async () => ({ archivedThreadIds: [], failedThreadIds: [] })),
 });
+
+function openLocalProjectFromComposer() {
+  fireEvent.click(screen.getByRole('button', { name: '添加' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: /^项目 / }));
+  fireEvent.click(screen.getByRole('menuitem', { name: /选择或新建文件夹/ }));
+}
 
 const boundConversation = (projectId: string, threadId: string, title: string): AgentProjectConversationSummary => ({
   projectId,
@@ -86,7 +111,7 @@ describe('App', () => {
     const openProject = vi.fn(async () => ({ project, brief }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { ...projectManagementApi(), open: openProject, list: vi.fn(async () => []), read: vi.fn(), updateBrief: vi.fn() },
+      project: { ...projectManagementApi(), open: openProject, list: vi.fn(async () => openProject.mock.calls.length > 0 ? [project] : []), read: vi.fn(), updateBrief: vi.fn() },
       agent: {
         ...conversationImportApi(),
         listConversations: vi.fn(async () => []),
@@ -115,8 +140,7 @@ describe('App', () => {
     expect(screen.getByText('还没有项目')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '新建项目' })).toBeNull();
     expect(screen.getByTestId('home-project-context').textContent).toContain('无项目');
-    fireEvent.click(screen.getByRole('button', { name: '添加' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /选择或新建文件夹/ }));
+    openLocalProjectFromComposer();
     await waitFor(() => expect(openProject).toHaveBeenCalledWith({ profileId: 'general', language: 'zh-CN' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByTestId('home-workspace')).toBeTruthy();
@@ -160,8 +184,7 @@ describe('App', () => {
 
     render(React.createElement(App));
     await screen.findByTestId('home-workspace');
-    fireEvent.click(screen.getByRole('button', { name: '添加' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /选择或新建文件夹/ }));
+    openLocalProjectFromComposer();
 
     await waitFor(() => expect(openProject).toHaveBeenCalledWith({ profileId: 'general', language: 'zh-CN' }));
     expect(screen.getByTestId('home-workspace')).toBeTruthy();
@@ -192,7 +215,7 @@ describe('App', () => {
     const startTurn = vi.fn(async () => ({ threadId: 'thread-folder', turnId: 'turn-folder' }));
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
-      project: { ...projectManagementApi(), open: openProject, list: vi.fn(async () => []), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
+      project: { ...projectManagementApi(), open: openProject, list: vi.fn(async () => openProject.mock.calls.length > 0 ? [project] : []), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
       agent: { ...conversationImportApi(), listConversations: vi.fn(async () => []), inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(), startConversation, startTurn, interrupt: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined) },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
       approval: { decide: vi.fn() },
@@ -201,9 +224,9 @@ describe('App', () => {
 
     render(React.createElement(App));
     await screen.findByTestId('home-workspace');
-    fireEvent.click(screen.getByRole('button', { name: '添加' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /选择或新建文件夹/ }));
+    openLocalProjectFromComposer();
     await waitFor(() => expect(screen.getByTestId('home-project-context').textContent).toContain(project.name));
+    await waitFor(() => expect(screen.getByTestId('composer-model-trigger').textContent).toContain('5.4'));
     const composer = screen.getByLabelText('描述制作需求');
     fireEvent.change(composer, { target: { value: '为这个目录生成制作计划' } });
     fireEvent.keyDown(composer, { key: 'Enter', shiftKey: false });
@@ -211,16 +234,21 @@ describe('App', () => {
     await waitFor(() => expect(startConversation).toHaveBeenCalledWith({
       projectId: project.projectId,
       conversationId: expect.stringMatching(/^conversation-/),
+      initialModelSettings: { model: 'gpt-5.4', effort: 'medium' },
     }));
     await waitFor(() => expect(startTurn).toHaveBeenCalledWith({
       projectId: project.projectId,
       conversationId: expect.stringMatching(/^conversation-/),
       threadId: 'thread-folder',
       text: '为这个目录生成制作计划',
+      attachmentIds: [],
+      capabilityIds: [],
+      mode: 'default',
+      modelSettings: { model: 'gpt-5.4', effort: 'medium' },
     }));
   });
 
-  it('edits a project from its home without creating a Codex thread', async () => {
+  it('opens project editing in the production extension without creating a Codex thread or business inspector', async () => {
     Object.defineProperty(window.navigator, 'language', { configurable: true, value: 'zh-CN' });
     const project = {
       projectId: 'project-1', name: '口播项目', profileId: 'talking_video', state: 'draft' as const,
@@ -245,8 +273,9 @@ describe('App', () => {
     await screen.findByTestId('project-project-1');
     fireEvent.click(screen.getByRole('button', { name: '口播项目 项目菜单' }));
     fireEvent.click(screen.getByRole('menuitem', { name: '编辑项目' }));
-    expect(await screen.findByTestId('home-workspace')).toBeTruthy();
+    expect(await screen.findByTestId('production-workspace')).toBeTruthy();
     expect(screen.queryByTestId('agent-panel')).toBeNull();
+    expect(document.querySelector('.project-inspector')).toBeNull();
     expect(await screen.findByTestId('project-overview')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('目标受众'), { target: { value: '创作者' } });
     fireEvent.click(screen.getByRole('button', { name: '保存 Brief' }));
@@ -360,17 +389,23 @@ describe('App', () => {
     };
     render(React.createElement(App));
     const composer = await screen.findByLabelText('描述制作需求');
+    await waitFor(() => expect(screen.getByTestId('composer-model-trigger').textContent).toContain('5.4'));
     fireEvent.change(composer, { target: { value: '帮我生成一个视频脚本' } });
     fireEvent.keyDown(composer, { key: 'Enter', shiftKey: false });
     await waitFor(() => expect(startConversation).toHaveBeenCalledWith(expect.objectContaining({
       projectId: null,
       conversationId: expect.stringMatching(/^standalone-/),
+      initialModelSettings: { model: 'gpt-5.4', effort: 'medium' },
     })));
     await waitFor(() => expect(startTurn).toHaveBeenCalledWith({
       projectId: null,
       conversationId: expect.stringMatching(/^standalone-/),
       threadId: 'thread-new',
       text: '帮我生成一个视频脚本',
+      attachmentIds: [],
+      capabilityIds: [],
+      mode: 'default',
+      modelSettings: { model: 'gpt-5.4', effort: 'medium' },
     }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
@@ -598,14 +633,24 @@ describe('App', () => {
       eventListener = listener;
       return () => undefined;
     });
+    const updateThreadSettings = vi.fn(async () => undefined);
     window.limeShot = {
       foundation: { read: vi.fn(async () => foundation) },
       project: { ...projectManagementApi(), open: vi.fn(), list: vi.fn(async () => [project]), read: vi.fn(async () => ({ project, brief })), updateBrief: vi.fn() },
       agent: {
         ...conversationImportApi(),
+        updateThreadSettings,
         listProjectConversations: vi.fn(async () => ({ conversations: [boundConversation(project.projectId, 'thread-activity', '状态投影')] })),
         listConversations: vi.fn(async () => []), inspectSubThread: vi.fn(), listInteractions: vi.fn(async () => []), submitInteraction: vi.fn(), openInteractionExternal: vi.fn(),
-        startConversation: vi.fn(async () => ({ conversationId: 'main', threadId: 'thread-activity', turns: [], access: 'active' as const })),
+        startConversation: vi.fn(async () => ({
+          conversationId: 'main', threadId: 'thread-activity', access: 'active' as const,
+          turns: [{
+            id: 'turn-change', status: 'completed' as const, itemsView: 'full' as const, items: [{
+              id: 'change-1', type: 'fileChange' as const, kind: 'activity' as const, text: '修改文件', status: 'completed' as const,
+              changes: [{ path: 'src/App.tsx', kind: 'update', diff: '--- a/src/App.tsx\n+++ b/src/App.tsx\n-old\n+new\n+next' }],
+            }],
+          }],
+        })),
         startTurn: vi.fn(), interrupt: vi.fn(async () => undefined), subscribe,
       },
       plan: { list: vi.fn(async () => ({ plans: [] })), read: vi.fn() },
@@ -620,37 +665,46 @@ describe('App', () => {
     await act(async () => eventListener?.({
       type: 'thread.context.updated',
       threadId: 'thread-activity',
-      patch: { lifecycle: 'active', model: { current: 'gpt-5.4' }, environment: { state: 'connected', label: 'remote-build' } },
+      patch: {
+        lifecycle: 'active',
+        model: { current: 'gpt-5.4' },
+        settings: {
+          cwd: '/workspace', model: 'gpt-5.4', modelProvider: 'openai', effort: 'medium',
+          approvalPolicy: 'on-request', sandboxPolicy: 'read-only',
+        },
+        environment: { state: 'connected', label: 'remote-build' },
+      },
     }));
     expect(screen.queryByText(/gpt-5\.4/)).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('composer-model-trigger').textContent).toContain('5.4'));
+    fireEvent.click(screen.getByTestId('composer-model-trigger'));
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理强度/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '极高' }));
+    await waitFor(() => expect(updateThreadSettings).toHaveBeenCalledWith({
+      projectId: project.projectId,
+      conversationId: 'main',
+      threadId: 'thread-activity',
+      model: 'gpt-5.4',
+      effort: 'xhigh',
+    }));
     expect(document.querySelector('.conversation-workspace > .conversation-status-surface')).toBeNull();
-    fireEvent.click(screen.getByTitle('打开对话运行状态'));
-    expect(await screen.findByText(/gpt-5\.4/)).toBeTruthy();
-    expect(screen.getByText(/remote-build/)).toBeTruthy();
-    expect(screen.getByRole('complementary', { name: '对话运行状态' }).querySelector('.conversation-status-surface')).toBeTruthy();
+    expect(screen.queryByTestId('conversation-review')).toBeNull();
+    expect(screen.getByTestId('workspace-review-toggle').textContent).toContain('变更+2-1');
+    fireEvent.click(document.querySelector('[data-item-type="fileChange"]') as HTMLButtonElement);
+    expect(screen.getByTestId('workspace-right-tabs').textContent).toContain('审阅');
+    expect(screen.getByTestId('conversation-review').getAttribute('data-selected-change-path')).toBe('src/App.tsx');
+    expect(screen.getAllByText('src/App.tsx').length).toBeGreaterThan(0);
+    expect(screen.getByRole('region', { name: '审阅' }).querySelector('.conversation-status-surface')).toBeNull();
+    expect(document.querySelector('[data-item-type="fileChange"] pre')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '关闭标签页: 审阅' }));
+    expect(screen.queryByTestId('conversation-review')).toBeNull();
 
-    await act(async () => eventListener?.({
-      type: 'notice.updated',
-      notice: { id: 'warning-1', scope: 'thread', threadId: 'thread-activity', level: 'warning', kind: 'warning', message: 'Check settings' },
-    }));
-    expect(await screen.findByText('Check settings')).toBeTruthy();
-    fireEvent.click(screen.getByTitle('关闭通知'));
-    expect(screen.queryByText('Check settings')).toBeNull();
-
-    await act(async () => eventListener?.({
-      type: 'composer.search.updated',
-      search: { sessionId: 'search-1', query: 'App', status: 'searching', files: [{ path: 'src/App.tsx', name: 'App.tsx' }] },
-    }));
-    fireEvent.click(await screen.findByRole('button', { name: /App\.tsx/ }));
-    expect(composer.value).toBe('@src/App.tsx ');
-
-    await act(async () => eventListener?.({
-      type: 'diagnostic.recorded',
-      diagnostic: { id: 'protocol:global', domain: 'protocol', level: 'warning', code: 'unknownNotification' },
-    }));
-    fireEvent.click(await screen.findByText('运行诊断'));
-    expect(screen.getByText('收到未知 Codex 事件')).toBeTruthy();
-    expect(screen.queryByText('future/privateNotification')).toBeNull();
+    fireEvent.click(screen.getByTitle('环境信息'));
+    const environmentMenu = await screen.findByTestId('environment-menu');
+    expect(environmentMenu.textContent).toContain('环境信息');
+    expect(environmentMenu.textContent).toContain('变更');
+    expect(environmentMenu.textContent).toContain('本地');
+    expect(environmentMenu.querySelector('.conversation-status-surface')).toBeNull();
 
     await act(async () => eventListener?.({
       type: 'thread.context.updated', threadId: 'thread-activity', patch: { lifecycle: 'archived' },

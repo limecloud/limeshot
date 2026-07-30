@@ -5,7 +5,7 @@ import { ExecutionPanel } from './ExecutionPanel';
 import type { TranslationKey } from './i18n';
 import { PlanPanel } from './PlanPanel';
 
-interface ProjectOverviewProps {
+interface ProductionProjectProps {
   detail: ProjectReadResult;
   plans: ProductionPlan[];
   mediaProbeReady: boolean;
@@ -15,7 +15,7 @@ interface ProjectOverviewProps {
   t: (key: TranslationKey) => string;
 }
 
-export function ProjectOverview({ detail, plans, mediaProbeReady, mediaTranscodeReady, onBriefUpdated, onPlanUpdated, t }: ProjectOverviewProps) {
+export function ProductionProject({ detail, plans, mediaProbeReady, mediaTranscodeReady, onBriefUpdated, onPlanUpdated, t }: ProductionProjectProps) {
   const statusKey = `brief.${detail.brief.completeness}` as TranslationKey;
   return (
     <section className="project-overview" data-testid="project-overview">

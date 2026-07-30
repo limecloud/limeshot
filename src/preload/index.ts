@@ -3,6 +3,12 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   DESKTOP_IPC,
   type AgentEvent,
+  type AgentAttachmentPickInput,
+  type AgentCaptureSourceInput,
+  type AgentComposerAttachment,
+  type AgentComposerCatalogInput,
+  type AgentComposerCatalogResult,
+  type AgentCaptureSourceOption,
   type AgentInteractionExternalOpenInput,
   type AgentInteractionExternalOpenResult,
   type AgentInteractionSubmitInput,
@@ -10,6 +16,8 @@ import {
   type AgentPendingInteractionProjection,
   type AgentThreadInspectInput,
   type AgentThreadInspectResult,
+  type AgentModelListResult,
+  type AgentThreadSettingsUpdateInput,
   type ConversationImportInput,
   type ConversationRenameInput,
   type ConversationStartInput,
@@ -24,6 +32,24 @@ import {
   type TurnInterruptInput,
   type TurnStartInput,
   type TurnStartResult,
+  type WorkspaceBrowserBoundsInput,
+  type WorkspaceBrowserEvent,
+  type WorkspaceBrowserNavigateInput,
+  type WorkspaceBrowserState,
+  type WorkspaceBrowserTargetInput,
+  type WorkspaceContextReadInput,
+  type WorkspaceContextResult,
+  type WorkspaceFileReadInput,
+  type WorkspaceFileReadResult,
+  type WorkspaceFileRevealInput,
+  type WorkspaceFilesListInput,
+  type WorkspaceFilesListResult,
+  type WorkspaceTerminalCloseInput,
+  type WorkspaceTerminalEvent,
+  type WorkspaceTerminalResizeInput,
+  type WorkspaceTerminalStartInput,
+  type WorkspaceTerminalStartResult,
+  type WorkspaceTerminalWriteInput,
 } from '../shared/desktop';
 import type {
   ApprovalDecideParams,
@@ -75,6 +101,12 @@ const api: DesktopApi = {
     listProjectConversations: (input: ProjectConversationsArchiveInput): Promise<ProjectConversationListResult> => ipcRenderer.invoke(DESKTOP_IPC.projectConversationList, input),
     archiveProjectConversations: (input: ProjectConversationsArchiveInput): Promise<ProjectConversationsArchiveResult> => ipcRenderer.invoke(DESKTOP_IPC.projectConversationsArchive, input),
     inspectSubThread: (input: AgentThreadInspectInput): Promise<AgentThreadInspectResult> => ipcRenderer.invoke(DESKTOP_IPC.threadInspect, input),
+    composerCatalog: (input: AgentComposerCatalogInput): Promise<AgentComposerCatalogResult> => ipcRenderer.invoke(DESKTOP_IPC.agentComposerCatalog, input),
+    pickAttachments: (input: AgentAttachmentPickInput): Promise<AgentComposerAttachment[]> => ipcRenderer.invoke(DESKTOP_IPC.agentAttachmentPick, input),
+    listCaptureSources: (): Promise<AgentCaptureSourceOption[]> => ipcRenderer.invoke(DESKTOP_IPC.agentCaptureSourceList),
+    captureSource: (input: AgentCaptureSourceInput): Promise<AgentComposerAttachment> => ipcRenderer.invoke(DESKTOP_IPC.agentCaptureSource, input),
+    listModels: (): Promise<AgentModelListResult> => ipcRenderer.invoke(DESKTOP_IPC.agentModelList),
+    updateThreadSettings: (input: AgentThreadSettingsUpdateInput): Promise<void> => ipcRenderer.invoke(DESKTOP_IPC.agentThreadSettingsUpdate, input),
     startTurn: (input: TurnStartInput): Promise<TurnStartResult> => ipcRenderer.invoke(DESKTOP_IPC.turnStart, input),
     interrupt: (input: TurnInterruptInput): Promise<void> => ipcRenderer.invoke(DESKTOP_IPC.turnInterrupt, input),
     listInteractions: (): Promise<AgentPendingInteractionProjection[]> => ipcRenderer.invoke(DESKTOP_IPC.interactionList),
@@ -106,6 +138,41 @@ const api: DesktopApi = {
   },
   deliverable: {
     confirm: (params: DeliverableConfirmParams): Promise<DeliverableConfirmResult> => ipcRenderer.invoke(DESKTOP_IPC.deliverableConfirm, params),
+  },
+  workspace: {
+    context: {
+      read: (input: WorkspaceContextReadInput): Promise<WorkspaceContextResult> => ipcRenderer.invoke(DESKTOP_IPC.workspaceContextRead, input),
+    },
+    files: {
+      list: (input: WorkspaceFilesListInput): Promise<WorkspaceFilesListResult> => ipcRenderer.invoke(DESKTOP_IPC.workspaceFilesList, input),
+      read: (input: WorkspaceFileReadInput): Promise<WorkspaceFileReadResult> => ipcRenderer.invoke(DESKTOP_IPC.workspaceFileRead, input),
+      reveal: (input: WorkspaceFileRevealInput): Promise<void> => ipcRenderer.invoke(DESKTOP_IPC.workspaceFileReveal, input),
+    },
+    terminal: {
+      start: (input: WorkspaceTerminalStartInput): Promise<WorkspaceTerminalStartResult> => ipcRenderer.invoke(DESKTOP_IPC.workspaceTerminalStart, input),
+      write: (input: WorkspaceTerminalWriteInput): Promise<void> => ipcRenderer.invoke(DESKTOP_IPC.workspaceTerminalWrite, input),
+      resize: (input: WorkspaceTerminalResizeInput): Promise<void> => ipcRenderer.invoke(DESKTOP_IPC.workspaceTerminalResize, input),
+      close: (input: WorkspaceTerminalCloseInput): Promise<void> => ipcRenderer.invoke(DESKTOP_IPC.workspaceTerminalClose, input),
+      subscribe: (listener: (event: WorkspaceTerminalEvent) => void): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, value: WorkspaceTerminalEvent) => listener(value);
+        ipcRenderer.on(DESKTOP_IPC.workspaceTerminalEvent, handler);
+        return () => ipcRenderer.removeListener(DESKTOP_IPC.workspaceTerminalEvent, handler);
+      },
+    },
+    browser: {
+      open: (): Promise<WorkspaceBrowserState> => ipcRenderer.invoke(DESKTOP_IPC.workspaceBrowserOpen),
+      navigate: (input: WorkspaceBrowserNavigateInput): Promise<WorkspaceBrowserState> => ipcRenderer.invoke(DESKTOP_IPC.workspaceBrowserNavigate, input),
+      back: (input: WorkspaceBrowserTargetInput): Promise<WorkspaceBrowserState> => ipcRenderer.invoke(DESKTOP_IPC.workspaceBrowserBack, input),
+      forward: (input: WorkspaceBrowserTargetInput): Promise<WorkspaceBrowserState> => ipcRenderer.invoke(DESKTOP_IPC.workspaceBrowserForward, input),
+      reload: (input: WorkspaceBrowserTargetInput): Promise<WorkspaceBrowserState> => ipcRenderer.invoke(DESKTOP_IPC.workspaceBrowserReload, input),
+      setBounds: (input: WorkspaceBrowserBoundsInput): Promise<void> => ipcRenderer.invoke(DESKTOP_IPC.workspaceBrowserBounds, input),
+      close: (input: WorkspaceBrowserTargetInput): Promise<void> => ipcRenderer.invoke(DESKTOP_IPC.workspaceBrowserClose, input),
+      subscribe: (listener: (event: WorkspaceBrowserEvent) => void): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, value: WorkspaceBrowserEvent) => listener(value);
+        ipcRenderer.on(DESKTOP_IPC.workspaceBrowserEvent, handler);
+        return () => ipcRenderer.removeListener(DESKTOP_IPC.workspaceBrowserEvent, handler);
+      },
+    },
   },
 };
 

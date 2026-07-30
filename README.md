@@ -4,7 +4,7 @@
 
 LimeShot 是面向内容生产者的独立桌面 AI 制作工作台。用户可以从自然语言需求或本地项目开始，由 Agent 收敛 Brief、生成可审阅的 ProductionPlan；用户批准后，Rust 业务服务负责受控任务、媒体处理、Artifact QA 和最终交付确认。
 
-当前版本：`v0.4.0`。
+当前版本：`v0.5.0`。
 
 ## 产品范围
 
@@ -18,11 +18,14 @@ LimeShot 固定提供五类业务入口，但只使用一套 Agent runtime 和�
 | `talking_video` | 口播视频 | 脚本、出镜人、声音、封面与混剪 |
 | `commerce_video` | 电商视频 | 商品事实、卖点、商品资产与平台交付 |
 
-`v0.4.0` 已打通以下 current 主链：
+`v0.5.0` 已打通以下 current 主链：
 
 - Codex Conversation 的创建、18 类 Item 原序渲染、72 类 notification 语义投影、中断、paginated history 恢复，以及本地 Codex 根 Thread 自动发现。
 - Project 会话树、Recent 去重与整理、Project Home、真实路径会话自动归组，以及未绑定外部 Thread 的 canonical history 只读查看。
 - Command/File/Permission Approval、RequestUserInput、MCP Elicitation、Activity Row、MCP/动态工具/媒体投影和多 Agent 子线程只读导航。
+- Composer 通过 Codex `model/list` 与 `thread/settings/update` 提供当前模型和推理强度选择；目录、能力与 Thread 终态继续由 Codex 拥有。
+- Workspace Chrome 提供可组合的 Review、Terminal、Browser、Files 和 Tasks 面板；文件与终端限制在 Project workspace，Browser 由 Electron 受管 WebContentsView 承载。
+- Review 工作区从业务面板中分离，使用对话列、Diff 与文件树结构；Production Home/Workspace 迁入静态可信 extension owner，不引入动态第三方代码或第二业务后端。
 - Project、Brief、Conversation binding、ProductionPlan 和不可变 ApprovalReceipt；Business protocol v5 增加 Project 重命名/软归档与 Conversation binding 列表/解绑。
 - 素材导入、FFprobe 探测、FFmpeg MP4 转码、进度、取消、超时与重试。
 - `media-output.v1`、`qa-report.v1`、Artifact lineage 与 Project 唯一 current Deliverable。
@@ -30,7 +33,7 @@ LimeShot 固定提供五类业务入口，但只使用一套 Agent runtime 和�
 - 使用统一 SVG 源生成并接入 macOS、Windows 与运行时应用图标。
 - `zh-CN`、`zh-TW`、`en-US`、`ja-JP`、`ko-KR` 五种界面语言。
 
-远端图片、视频和语音 Provider 尚未接入生产配置。正式包也尚未携带可再分发的 FFmpeg/FFprobe runtime；缺少受管资源时相关服务会明确阻断，不会回退到系统 PATH 或 mock。
+LimeCore/AsterRouter 云端多模型链路仍是 Target，不属于本版本已交付能力。远端图片、视频和语音 Provider 尚未接入生产配置。正式包也尚未携带可再分发的 FFmpeg/FFprobe runtime；缺少受管资源时相关服务会明确阻断，不会回退到系统 PATH 或 mock。
 
 ## 架构
 
@@ -144,7 +147,7 @@ npm run verify:local
 6. 汇合两个平台的五个资产，生成并复验统一的 `SHA256SUMS.txt`；任一平台失败都不会发布半套正式资产。
 7. 覆盖同版本 draft Release 资产，并在全部步骤成功后发布 Release。
 
-macOS 产物当前使用 ad-hoc 签名，尚未完成 Developer ID 签名与 notarization。仓库尚未配置 Windows 代码签名 secrets，因此 `v0.4.0` Windows Squirrel 产物为未签名构建；workflow 已保留同时提供证书与密码时的受控签名入口。
+macOS 产物当前使用 ad-hoc 签名，尚未完成 Developer ID 签名与 notarization。仓库尚未配置 Windows 代码签名 secrets，因此 `v0.5.0` Windows Squirrel 产物为未签名构建；workflow 已保留同时提供证书与密码时的受控签名入口。
 
 开发机生成的包只用于本地验收，不得上传为正式 Release 资产。
 
@@ -174,9 +177,10 @@ macOS 产物当前使用 ad-hoc 签名，尚未完成 Developer ID 签名与 not
 - [全局架构](internal/aiprompts/architecture.md)
 - [命令边界](internal/aiprompts/commands.md)
 - [质量工作流](internal/aiprompts/quality-workflow.md)
+- [云端多模型目标架构](internal/tech/model-platform-architecture.md)
 - [执行计划](internal/exec-plans/v1-implementation.md)
 - [对话全量投影方案](internal/roadmap/xuanlan/README.md)
-- [v0.4.0 Release Notes](RELEASE_NOTES.md)
+- [v0.5.0 Release Notes](RELEASE_NOTES.md)
 
 ## License
 

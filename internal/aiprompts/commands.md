@@ -22,6 +22,7 @@ Renderer 只看产品语义：
 | Foundation | `foundation.read` | Rust status/catalog 聚合投影 |
 | Project | `project.open`、`project.list`、`project.read`、`project.updateBrief` | `project.open` 先经 Electron 系统目录选择器；选中本地文件夹后经 Rust business client 登记 Project |
 | Conversation | `agent.listConversations`、`agent.listProjectConversations`、`agent.listImportCandidates`、`agent.importConversation`、`agent.startConversation` | Codex 根 Thread 自动投影；Project Conversation 访问 Codex client + Rust binding |
+| Model | `agent.listModels`、`agent.updateThreadSettings` | Electron 校验会话 owner 后调用 Codex `model/list` 与 `thread/settings/update`；最终状态由 `thread/settings/updated` 投影 |
 | Turn | `agent.startTurn`、`agent.interrupt`、`agent.subscribe` | Codex client |
 | Catalog | 包含在 `foundation.read` | Rust business client |
 | Plan | `plan.list`、`plan.read` | Rust business client |
@@ -46,14 +47,15 @@ Renderer 不暴露 `project.create`。`project.open` 是从 Composer 底部 `+` 
 当前 Electron main 的固定 Codex allowlist：
 
 - lifecycle：`initialize`、`initialized`；
-- thread：`thread/start`、`thread/resume`、`thread/read`、`thread/list`、`thread/turns/list`、`thread/items/list`；
+- thread：`thread/start`、`thread/resume`、`thread/read`、`thread/list`、`thread/turns/list`、`thread/items/list`、`thread/settings/update`；
+- model：`model/list`；
 - turn：`turn/start`、`turn/interrupt`；
 - skills：`skills/extraRoots/set`；
 - GUI reverse request：Command、File、Permission Approval，`item/tool/requestUserInput` 与 `mcpServer/elicitation/request`；
 - host reverse request：`item/tool/call`、ChatGPT token refresh、attestation、current time，以及去重兼容的 legacy exec/patch approval；
 - notifications：72 类固定上游事件经 main semantic projection 转换为 `agent.subscribe` 事件。
 
-`thread/name/set`、`turn/steer` 等其他 method 需在固定版本类型、semantic projection 与 contract fixture 同时落地后才能加入 allowlist。`thread/list` 仅按 Electron 拥有的 standalone cwd 过滤最近会话；paginated history 只通过 `thread/turns/list` 与 `thread/items/list` 读取 canonical 上游事实。
+`thread/name/set`、`turn/steer` 等其他 method 需在固定版本类型、semantic projection 与 contract fixture 同时落地后才能加入 allowlist。`agent.listModels` 只返回非隐藏模型及每个模型自己的 `supportedReasoningEfforts`；`agent.updateThreadSettings` 必须同时提交已校验的 model/effort，不能把 raw method 或任意设置字段暴露给 Renderer。Thread 初始 model/effort 来自 `thread/start` 或 `thread/resume` 响应，不能从模型目录默认项推断；当前型号允许暂时不在非隐藏目录中。设置响应只表示排队成功，UI 只能用后续 `thread/settings/updated` 更新最终选中态。`thread/list` 仅按 Electron 拥有的 standalone cwd 过滤最近会话；paginated history 只通过 `thread/turns/list` 与 `thread/items/list` 读取 canonical 上游事实。
 
 Codex request id、envelope 和错误只存在于 Electron main。不得把上游协议重新生成成 Rust business protocol。
 

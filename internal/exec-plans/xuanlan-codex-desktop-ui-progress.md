@@ -1,14 +1,87 @@
 # Codex Desktop 全量 UI 对齐实施进度
 
-> 状态：P0 Sidebar 核心菜单与项目会话树 Gate B 完成，P1 Activity Row、MCP/Media 与 Multi-Agent/Boundary 第一轮完成
-> 更新时间：2026-07-29
+> 状态：Composer 添加菜单、结构化附件与 Codex 能力入口实施中；Review 与 Production extension owner 保持不变
+> 更新时间：2026-07-30
 > 固定参考：Codex Desktop `26.721.41059`
 > 稳定规范：`internal/roadmap/xuanlan/CODEX-DESKTOP-UI-PARITY.md`
 > 功能投影进度：`internal/exec-plans/xuanlan-conversation-projection-progress.md`
 
 ## 主目标
 
-以已安装 Codex Desktop 的真实 Renderer 为设计事实源，逐 surface 复刻窗口骨架、侧栏、首页、对话、Composer、全部 Agent 投影、阻塞交互和业务检查器。功能完整度、源码映射完成度、LimeShot 截图验收完成度和 Codex 对照截图完成度分别追踪，任一项未完成时不得宣称全量 parity。
+以已安装 Codex Desktop 的真实 Renderer 为设计事实源，逐 surface 复刻窗口骨架、侧栏、首页、对话、Composer、全部 Agent 投影、阻塞交互和 Review 工作区；产品业务由独立 extension workspace 承载并复用同一视觉语法。功能完整度、源码映射完成度、LimeShot 截图验收完成度和 Codex 对照截图完成度分别追踪，任一项未完成时不得宣称全量 parity。
+
+## 2026-07-30：Composer 添加菜单、附件与原生能力入口
+
+状态：实施中
+
+- 目标：按用户提供的 Codex Desktop Composer 截图补齐“文件和文件夹、应用窗口截图、项目、目标、计划模式、Record a skill、Plugins”全部真实动作；首页与会话共用同一个菜单和 draft owner，不增加假按钮、Renderer 路径泄漏或 Rust 业务绑定。
+- 固定事实：文件/文件夹/图片/音频映射为 Codex `UserInput`；应用名（截图中的 Wave）来自 Electron 可捕获窗口而非硬编码；Goal 使用 `thread/goal/*`；Plan mode 使用 `turn/start.collaborationMode`；Skill/Plugin 使用经 Main 校验后的结构化 `skill` / `mention`；Record a skill 仅由可用的 `record-and-replay` plugin 提供。
+- 窄写集：`packages/codex-client/src/**`、`src/{shared,preload,main}/**` 中对应 semantic command、`src/renderer/src/{App,Composer*,i18n,styles}.tsx?`、`extensions/{types,production/ProductionHome,production/production.css}`、相关 tests、`scripts/smoke/electron-smoke.mjs`、命令/架构/UI parity 文档和本执行计划。
+- 排除项：不修改 Rust Business Service、Project/Plan/Task/Artifact 持久化、Review/Workspace 面板 owner、release/Forge；不实现第三方插件商店或安装器，不把开发 `.codex/skills` 扫描为产品 fallback，不向 Renderer 暴露绝对路径、raw Codex method 或 app-server generated type。
+- 退出条件：文件/目录/窗口截图可经系统能力选择、以不含路径的 chip 展示并随 Turn 形成结构化输入；附件可移除且空文本可发送；项目选择、Goal、Plan mode、enabled Skill/Plugin 和 Record a skill 均命中各自真实 owner；首页 draft 与现有 Thread 行为一致；五语言、disabled/error/Escape/outside close/窄窗 containment 有覆盖；contracts、typecheck、Electron build、governance 与真实 Gate B 通过。
+- 验证计划：Codex client/Main IPC/preload contract/Composer/App/i18n 定向 Vitest，`npm test -- --run`、`npm run test:contracts`、`npm run typecheck`、`npm run electron:build`、`npm run verify:gui-smoke`、`npm run governance:runtime-boundary`、`npm run governance:ui-parity` 与 `git diff --check`。
+- [x] 固定 Codex Desktop 源码映射确认菜单顺序及真实 owner；“Attach Wave”已确认为应用窗口截图动作，Wave 不是产品常量。
+- [ ] 扩展 Codex native request map 与 Electron semantic gateway，完成路径隔离、catalog 校验和结构化 Turn input。
+- [ ] 首页/会话接入共用 Composer add menu、附件 chips、Goal/Plan mode 和 Skill/Plugin 选择。
+- [ ] 修正 Gate B 受控型号选择，并补全部动作的真实 Electron 证据与截图。
+- [ ] 完成文档、治理和全量质量门禁。
+
+## 2026-07-30：Composer 模型与推理强度切换
+
+状态：已完成
+
+- 目标：按用户提供的 Codex Desktop 截图，在 Thread Composer footer 增加当前 model/effort 触发器和两级菜单；型号与推理强度都使用固定 Codex `0.145.0` 的真实目录与 Thread settings，不把能力绑定到 Rust 业务层或 production extension。
+- 窄写集：`packages/codex-client/src/{types,index.test}.ts`、`src/{shared/desktop,preload/index,main/ipc}.ts`、Main tests、`src/renderer/src/{App,ConversationModelMenu,i18n,main,styles}.tsx?`、组件 CSS/tests、`scripts/smoke/electron-smoke.mjs`、命令/架构/UI 规范和本执行计划。
+- 排除项：不修改 Rust Business Service、业务 extension、Review 工作区 owner、未跟踪 `ConversationImportDialog.tsx` 或 release 文件；不硬编码截图型号，不开放 Renderer raw Codex proxy，不新增旧/新双轨。
+- 退出条件：`model/list` 与 `thread/settings/update` 进入固定 typed allowlist；Main 校验会话 owner、只读状态和 model/effort 组合；菜单只显示动态目录和所选模型支持的 efforts；设置终态由 `thread/settings/updated` 回投；五语言、loading/error/disabled/Escape/outside close 与窄窗 containment 有覆盖；contracts、typecheck、Electron build 和真实 Gate B 通过。
+- 验证计划：Codex client/Main IPC/组件/App/i18n 定向 Vitest，`npm run test:contracts`、`npm run typecheck`、`npm run electron:build`、`npm run verify:gui-smoke` 与 `git diff --check`。
+- [x] Codex client 开放 `model/list`、`thread/settings/update` 生成类型，保持 native JSONL envelope 与独立 request map。
+- [x] preload/Main 新增 `agent.listModels`、`agent.updateThreadSettings` typed semantic API；Renderer 不能提交 raw method 或其他 Thread setting。
+- [x] Main 分页读取非隐藏模型，投影每个模型自己的 supported efforts；更新前校验 owner、只读状态、model/effort 组合并在必要时 resume Thread。
+- [x] 当前 Thread 的 model/effort 只从 `thread/start`、`thread/resume` 响应或 `thread/settings/updated` 通知初始化；不再把 `model/list` 默认项误判为当前设置。
+- [x] `ConversationModelMenu` 使用一级设置菜单与右侧 model/effort 二级菜单；模型选择保留兼容 effort，否则使用该模型默认值，并把 model/effort 合并成一个设置请求。
+- [x] 当前型号不在非隐藏目录时仍显示上游型号；空 reasoning effort 显示“默认”，目录中有可选型号时仍可切换，不误报模型不可用。
+- [x] active Turn、只读子线程和 runtime read-only 状态禁用控件；目录 loading/error/retry、更新失败、Escape 与 outside close 已实现。
+- [x] 五语言与 Codex client/Main IPC/组件/App/i18n 回归已补；定向 32 项与全量 30 文件 129 项 Vitest 全部通过。
+- [x] `npm run test:contracts` 9 项、typecheck、Electron build、runtime/UI governance 与 `git diff --check` 全部通过。
+- [x] 增强 Gate B 全绿：13 次 provider fixture 保持通过，`modelSettingsEvidence` 8 项全部为 `true`，证明真实目录、start/resume 初始设置、型号/effort 通知终态与菜单 containment；人工复核截图 `/tmp/limeshot-model-menu-20260730/02-model-picker.png` 无裁切或重叠。
+
+## 2026-07-29：Codex Review 工作区纠偏
+
+状态：已完成
+
+- 目标：纠正“窄右栏纵向堆叠文件、Diff、Environment、Runtime”的错误抽象；点击工具栏或时间线 `fileChange` 后进入 Codex Desktop 风格 Review 工作区，桌面结构固定为“对话列 -> 大面积 Diff -> 最右文件树”，顶部有独立“审阅”标签。
+- 窄写集：`src/renderer/src/{App,ConversationReview,ConversationTimeline,conversationChanges,i18n,main,styles}.tsx?`、`src/renderer/src/conversationReview.css`、对应 Renderer tests、`scripts/{quality,smoke}/**`、本执行计划、架构与 xuanlan 投影规范。
+- 排除项：不修改 `internal/exec-plans/v0.4.0-release.md` 与未跟踪 `ConversationImportDialog.tsx`；不新增 Git branch/commit/push 假能力，不改 preload、IPC、Codex/Rust 协议。
+- 退出条件：Review 默认不在 DOM；工具栏或时间线 fileChange 可打开并选中对应文件；桌面对话列固定 `380-430px`，Diff 主区宽于最右文件树；`1024px` 使用专用 Review，`420px` 使用文件选择器且无横向溢出；Environment/Runtime 不进入 Review；定向/全量测试、typecheck、Electron build、UI/runtime governance 和 Gate B 通过并人工复核截图。
+- 验证计划：先跑 `conversationChanges`、`ConversationReview`、`ConversationTimeline`、`App` 与 i18n 定向 Vitest，再跑全量 Vitest、`npm run typecheck`、`npm run governance:ui-parity`、`npm run governance:runtime-boundary`、`npm run electron:build`、`npm run verify:gui-smoke`；Gate B 断言桌面/紧凑/窄屏几何并保存截图。
+- [x] 物理删除错误的 `ConversationInspector` 与 `conversationInspector.css`，不保留 wrapper、旧 selector、旧 `activity` workspace mode 或组合右栏双轨。
+- [x] `ConversationReview` 成为文件树、受控文件选择和 Diff 的唯一 owner；`ConversationStatusSurface` 改为对话列内独立 Activity 浮层，不再进入 Review。
+- [x] 工具栏“变更”和时间线 `fileChange` 均打开 Review；顶部显示独立“审阅”标签与关闭动作，Review 默认关闭。
+- [x] 文件导航按路径树展示并支持筛选；viewer 保留 hunk、旧/新行号、addition/deletion/context、长内容有界预览与 aggregate diff fallback。
+- [x] 五语言已补 Review、打开/关闭、已修改文件和筛选文件文案；旧环境检查器文案已删除。
+- [x] 定向 Vitest 5 个文件 33 项与 `npm run typecheck` 已通过。
+- [x] 全量 Vitest 23 个文件 107 项、`npm run typecheck`、UI/runtime governance、Electron production build 与 `git diff --check` 通过。
+- [x] 真实 Electron Gate B 全绿：`changesReview`、`changesReviewCompact`、`changesReviewNarrow` 和 `activitySurface` 均为 `true`；证明真实 Electron/preload/IPC、Codex/Rust child、13 次 provider fixture、时间线打开 Review、桌面三列、`1024px` 专用 Review、`420px` 文件选择器及无横向溢出。
+- [x] 截图目录：`/tmp/limeshot-review-workspace-20260729`；`02-review-workspace.png`、`02-review-workspace-1024.png` 与 `02-review-workspace-420.png` 已人工复核，无重叠、截断或错误层级。
+
+## 2026-07-29：核心 Codex UI 与 Production 业务 extension 解耦
+
+状态：已完成
+
+- 目标：核心 Renderer 只拥有 Codex Desktop 壳、会话投影、阻塞交互和核心会话 surface；Project、Profile、Brief、Plan、Execution、Task、Artifact 与 Deliverable 迁入独立 production extension workspace。
+- 窄写集：`src/renderer/src/{App,AppSidebar,ConversationTimeline,i18n,main,styles}.tsx?`、`src/renderer/src/extensions/**`、`scripts/quality/check-ui-parity.mjs`、`scripts/smoke/electron-smoke.mjs`、本执行计划、稳定 UI 规范和全局架构。
+- 排除项：不修改未跟踪 `src/renderer/src/ConversationImportDialog.tsx` 和已脏 `internal/exec-plans/v0.4.0-release.md`；不改 preload、Electron IPC、Codex/Rust 协议或业务持久化；不建设动态第三方插件安装、下载或沙箱系统。
+- 退出条件：核心 `App` 不加载业务 detail/profile/plan/execution 状态；核心右栏无业务 surface；项目编辑进入 `production-workspace`；业务样式和文案只存在于 extension；旧根组件物理删除并有回流守卫；定向/全量测试、typecheck、contracts、UI/runtime governance、Electron build 和 Gate B 通过。
+- [x] 新增 `ProductExtension` 合同、静态可信 registry 和 `ExtensionHost`；production extension 独立注册 Home 与 Workspace 两种 surface。
+- [x] `ProductionHome`、`ProductionWorkspace`、`ProductionProject`、`PlanPanel`、`ExecutionPanel`、业务 i18n 与 CSS 迁入 `extensions/production/**`。
+- [x] 项目“编辑”不再切换核心 Project Inspector，而是进入独立 `production-workspace`；核心 Review 与 Activity surface 均不承载业务 UI。
+- [x] 删除根 Renderer 的 `WorkspaceHome`、`ProjectOverview`、`PlanPanel`、`ExecutionPanel` 及对应旧测试；不保留 wrapper、fallback 或双轨样式/文案。
+- [x] `governance:ui-parity` 递归扫描 extension，并禁止旧组件名、`project-inspector` 和业务 UI 回流核心 `App/styles/i18n`。
+- [x] 修正 smoke 在 Electron 重启后复用旧 page Locator 的测试缺陷；assistant 可见性在进入独立 extension workspace 前取证，不再依赖旧 Inspector 与会话叠层布局。
+- [x] 全量 Vitest 23 个文件 105 项、`npm run typecheck`、8 项 client contracts、UI/runtime governance、Electron production build 与 `git diff --check` 全部通过。
+- [x] 真实 Electron Gate B 全绿：Codex/Rust child、13 次 provider fixture、审批/媒体/重试/QA/Deliverable/重启恢复均通过；`projectResponsiveEvidence.desktop|compact|narrow` 与 `coreBusinessInspectorAbsent` 全为 `true`。
+- [x] 带截图 Gate B 再次通过；截图目录：`/tmp/limeshot-production-extension-20260729`。该轮截图只证明旧会话 surface 与 production workspace 解耦；旧变更右栏视觉结论已被本轮 Review 工作区纠偏取代。production workspace 的 `1280x900`、`1024x768`、`768x900`、`420x900` 均无重叠或横向溢出。
 
 ## Current owner
 
@@ -17,10 +90,15 @@ Renderer semantic state
   -> AppShell
        -> AppSidebar
        -> WorkspaceHeader
-       -> WorkspaceHome | ConversationTimeline
+       -> ConversationTimeline
        -> PendingInteractions | Composer
-       -> ActivityInspector | ProjectInspector
-  -> styles.css semantic token and responsive owner
+       -> ConversationReview(Diff + FileTree)
+       -> ConversationStatusSurface(Activity popover)
+  -> ExtensionHost
+       -> production
+            -> ProductionHome
+            -> ProductionWorkspace(Brief + Plan + Execution + Artifact + Deliverable)
+  -> core styles/i18n + extension-local styles/i18n
 ```
 
 ## 事实源与限制
@@ -30,7 +108,7 @@ Renderer semantic state
 - [x] 确认 Computer Use 本身已配置且可读取 Finder；读取 Codex Desktop 被平台应用策略单独拒绝。
 - [x] 将“本地无 Desktop Renderer 源码”的旧判断从稳定规范撤销。
 - [x] 收到用户提供的 Codex project home `2560x1304` 运行态截图，并提取 sidebar、四项建议、底部双层 Composer 和 toolbar 基线。
-- [ ] 收集真实 Codex Desktop 的 thread/tool/approval/inspector 固定尺寸截图；当前仍需要用户截图或平台解除应用限制。
+- [ ] 收集真实 Codex Desktop 的 thread/tool/approval 固定尺寸截图；Review 已使用本轮用户截图作为对照事实源。
 
 ## P0：窗口与主工作流
 
@@ -92,9 +170,10 @@ Renderer semantic state
 - [ ] 长 JSON/stdout/diff/result 的折叠、高度和 overflow 行为继续逐 surface 对齐；当前 Tool/MCP text 已完成第一轮，完整 transcript/drawer 仍待后续能力。
 - [x] stdout/diff/JSON 保持有界高度与首尾预览；Web Search 增加结果数量上限，完整 transcript/drawer 仍待后续能力。
 
-## P2：业务检查器与全局状态
+## P2：产品 Extension 与全局状态
 
-- [ ] Project / Brief / Plan / Execution 使用 Codex secondary panel 视觉语法重建。
+- [x] Project / Brief / Plan / Execution 从核心右栏迁入独立 production extension workspace；核心与业务 owner 已物理解耦。
+- [ ] Production workspace 内的 Project / Brief / Plan / Execution 继续完成 Codex 视觉语法和交互密度对齐。
 - [ ] Task / Artifact / QA / Deliverable / error 状态完成对齐。
 - [ ] Activity / catalog / hook / review / notice / diagnostic / realtime 完成对齐。
 - [ ] 五种 locale 和窄窗文本溢出完成验收。
@@ -113,10 +192,12 @@ Renderer semantic state
 
 ### current
 
-- `AppShell -> Sidebar/Header/Home|Timeline/Interaction|Composer/Inspector` 唯一 UI 主链。
+- `AppShell -> Sidebar/Header/Timeline/Interaction/Composer/ConversationReview` 是唯一核心 Codex UI 主链。
 - `ConversationTimeline` 保持 Item 原序和唯一 projection owner。
 - `PendingInteractions` 保持 reverse request 唯一 interaction owner。
-- `styles.css` 保持 semantic token、surface 和响应式唯一 owner。
+- `ConversationReview` 只拥有 Diff 与最右文件树，默认关闭；`ConversationStatusSurface` 只属于对话内 Activity 浮层。
+- `ExtensionHost -> production -> ProductionHome|ProductionWorkspace` 是唯一产品业务 UI 主链。
+- 核心 `styles.css/i18n.ts` 与 production extension 本地 CSS/i18n 分别拥有各自 surface。
 
 ### compat
 
@@ -128,8 +209,11 @@ Renderer semantic state
 
 ### dead
 
+- 根 Renderer 旧 `WorkspaceHome`、`ProjectOverview`、`PlanPanel`、`ExecutionPanel` 及其旧测试。
+- 核心 Project Inspector、`project-inspector` selector、业务 detail/profile/plan/execution state 和业务文案。
+- 错误的 `ConversationInspector`、`workspace-inspector`、`conversation-inspector` 以及 Environment/Runtime 与 Diff 组合布局。
 - 上一轮猜测的 `--content-width: 760px`、统一小圆角规则和硬分割 sidebar。
-- 非 Codex 的品牌顶栏、Profile 五栏分段卡条和 inspector 卡片化结构。
+- 非 Codex 的品牌顶栏、Profile 五栏分段卡条和卡片化检查器结构。
 - 任何平级旧主题、重复 projection owner 和 production mock fallback。
 
 ## 进度日志
@@ -238,7 +322,7 @@ Renderer semantic state
 - [x] `npm run typecheck`、Main/Sidebar/App 定向测试 25 项、全量 Vitest 19 个文件 94 项、client contract 8 项、runtime/UI governance、resource provenance 与 Electron build 全部通过。
 - [x] 真实 Electron Gate B 的 `projectConversationNested` 与 Sidebar 菜单 21 项证据全绿；截图目录：`/tmp/limeshot-codex-sidebar-tree-20260729`。
 - [x] Gate fixture 即使把同一项目 Thread 再注册为 imported standalone，Renderer 仍以 Project binding 为 owner，不再在 Recent 重复显示。
-- [x] Project row 不再固定启动 `main` conversation，而是进入带项目上下文的 Project Home；项目编辑在 Home 的业务检查器中完成，不隐式创建 Codex Thread。
+- [x] Project row 不再固定启动 `main` conversation，而是进入带项目上下文的 Project Home；项目编辑进入独立 production extension workspace，不隐式创建 Codex Thread。
 - [x] App 集成测试覆盖 Project Home、项目历史子行完整 start target 和 Recent 去重；Main 合同测试覆盖 unmaterialized binding fallback。定向 26 项 tests 与 typecheck 通过。
 
 ### 2026-07-29：Project Home / Recent owner Gate B 收口
@@ -263,13 +347,13 @@ Renderer semantic state
 ## 完成度
 
 - 源码映射：72%
-- P0 主工作流实现：92%（Sidebar 核心菜单、项目多会话树、目录历史归属、Recent 去重和 Project Home 落点完成；条件型 Thread action 仍未完成）
-- P1 Agent 投影视觉：72%
-- P2 业务检查器：15%
-- P3 治理与回归：78%
-- Codex 运行态截图对照：8%（Project Home 已有用户截图；其余 surface 仍受 Computer Use 应用策略限制）
-- UI parity 整体：61%
+- P0 主工作流实现：93%（Review 工作区三列与窄屏模式已对齐；条件型 Thread action 仍未完成）
+- P1 Agent 投影视觉：74%（fileChange -> Review 与 Diff/FileTree 已完成；其余运行态 surface 继续逐项对照）
+- P2 产品 extension：38%（核心/业务 owner 已解耦并迁入独立 workspace；业务 surface 的完整视觉与交互验收仍未完成）
+- P3 治理与回归：80%
+- Codex 运行态截图对照：12%（Project Home 与 Review 已有用户截图；其余 surface 仍受 Computer Use 应用策略限制）
+- UI parity 整体：65%
 
 ## 下一刀
 
-按用户截图继续侧栏视觉复验，下一刀收紧品牌区的标题/chevron、Search 对位和一级动作区纵向节奏；不为尚无产品 owner 的 Pull Request、Scheduled、Plugins 制造假入口。随后实现具备完整产品 owner 的 Thread fork/continue；deep link、多窗口和 stable worktree 在产品链建立前保持不显示。
+完成 production extension workspace 的 Project/Brief/Plan/Execution/Artifact/Deliverable 视觉和交互验收；这些能力不得回流核心 Review 或 Activity surface。随后为 branch、commit/push 和 compare 建立 semantic Git owner，再补 Review 的真实仓库操作；owner 建立前保持不显示，禁止 Renderer shell 或硬编码 `main`。Thread fork/continue、deep link、多窗口和 stable worktree 在完整产品 owner 建立前同样保持不显示。

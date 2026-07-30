@@ -1,7 +1,7 @@
 {
   "name": "limeshot",
   "productName": "LimeShot",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "AI 内容生产桌面工作台",
   "type": "module",
@@ -11,9 +11,10 @@
     "node": ">=20.0.0"
   },
   "scripts": {
+    "postinstall": "node scripts/desktop/prepare-node-pty.mjs",
     "dev": "npm run electron:dev",
     "electron:dev": "node scripts/desktop/dev.mjs",
-    "electron:build": "npm run rust:build:release && electron-vite build",
+    "electron:build": "node scripts/desktop/prepare-node-pty.mjs && npm run rust:build:release && electron-vite build",
     "package:stage": "node scripts/desktop/stage-package.mjs",
     "electron:package": "npm run electron:build && npm run package:stage && electron-forge package",
     "electron:make": "npm run electron:build && npm run package:stage && electron-forge make",
@@ -37,7 +38,10 @@
     "verify:local": "npm run verify:app-version && npm run governance:runtime-boundary && npm run governance:ui-parity && npm run resource:check && npm run typecheck && npm run test:contracts && npm run test:rust && npm run electron:build && npm run verify:gui-smoke"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "lucide-react": "^0.468.0",
+    "node-pty": "^1.1.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },

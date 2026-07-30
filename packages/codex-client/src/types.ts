@@ -5,6 +5,8 @@ import type { RequestId } from './generated/RequestId';
 import type { JsonValue } from './generated/serde_json/JsonValue';
 import type { AttestationGenerateResponse } from './generated/v2/AttestationGenerateResponse';
 import type { ChatgptAuthTokensRefreshResponse } from './generated/v2/ChatgptAuthTokensRefreshResponse';
+import type { CollaborationModeListParams } from './generated/v2/CollaborationModeListParams';
+import type { CollaborationModeListResponse } from './generated/v2/CollaborationModeListResponse';
 import type { CommandExecutionRequestApprovalResponse } from './generated/v2/CommandExecutionRequestApprovalResponse';
 import type { CurrentTimeReadResponse } from './generated/v2/CurrentTimeReadResponse';
 import type { DynamicToolCallOutputContentItem } from './generated/v2/DynamicToolCallOutputContentItem';
@@ -12,6 +14,11 @@ import type { DynamicToolCallParams } from './generated/v2/DynamicToolCallParams
 import type { DynamicToolCallResponse } from './generated/v2/DynamicToolCallResponse';
 import type { FileChangeRequestApprovalResponse } from './generated/v2/FileChangeRequestApprovalResponse';
 import type { McpServerElicitationRequestResponse } from './generated/v2/McpServerElicitationRequestResponse';
+import type { Model } from './generated/v2/Model';
+import type { ModelListParams } from './generated/v2/ModelListParams';
+import type { ModelListResponse } from './generated/v2/ModelListResponse';
+import type { PluginListParams } from './generated/v2/PluginListParams';
+import type { PluginListResponse } from './generated/v2/PluginListResponse';
 import type { PermissionsRequestApprovalResponse } from './generated/v2/PermissionsRequestApprovalResponse';
 import type { SkillsExtraRootsSetParams } from './generated/v2/SkillsExtraRootsSetParams';
 import type { SkillsExtraRootsSetResponse } from './generated/v2/SkillsExtraRootsSetResponse';
@@ -22,6 +29,8 @@ import type { ThreadDeleteParams } from './generated/v2/ThreadDeleteParams';
 import type { ThreadDeleteResponse } from './generated/v2/ThreadDeleteResponse';
 import type { ThreadItemsListParams } from './generated/v2/ThreadItemsListParams';
 import type { ThreadItemsListResponse } from './generated/v2/ThreadItemsListResponse';
+import type { ThreadGoalSetParams } from './generated/v2/ThreadGoalSetParams';
+import type { ThreadGoalSetResponse } from './generated/v2/ThreadGoalSetResponse';
 import type { ThreadListParams } from './generated/v2/ThreadListParams';
 import type { ThreadListResponse } from './generated/v2/ThreadListResponse';
 import type { ThreadReadParams } from './generated/v2/ThreadReadParams';
@@ -32,6 +41,8 @@ import type { ThreadSetNameParams } from './generated/v2/ThreadSetNameParams';
 import type { ThreadSetNameResponse } from './generated/v2/ThreadSetNameResponse';
 import type { ThreadStartParams } from './generated/v2/ThreadStartParams';
 import type { ThreadStartResponse } from './generated/v2/ThreadStartResponse';
+import type { ThreadSettingsUpdateParams } from './generated/v2/ThreadSettingsUpdateParams';
+import type { ThreadSettingsUpdateResponse } from './generated/v2/ThreadSettingsUpdateResponse';
 import type { ThreadTurnsListParams } from './generated/v2/ThreadTurnsListParams';
 import type { ThreadTurnsListResponse } from './generated/v2/ThreadTurnsListResponse';
 import type { Turn } from './generated/v2/Turn';
@@ -50,6 +61,7 @@ export type CodexTurn = Turn;
 
 // isPinned is accepted only as a forward-compatible read.
 export type CodexThread = Thread & { recencyAt?: number | null; isPinned?: boolean };
+export type CodexModel = Model;
 
 export type CodexUserInput = UserInput;
 
@@ -74,8 +86,13 @@ export interface CodexRequestMap {
   'thread/name/set': { params: ThreadSetNameParams; result: ThreadSetNameResponse };
   'thread/archive': { params: ThreadArchiveParams; result: ThreadArchiveResponse };
   'thread/delete': { params: ThreadDeleteParams; result: ThreadDeleteResponse };
+  'thread/goal/set': { params: ThreadGoalSetParams; result: ThreadGoalSetResponse };
+  'thread/settings/update': { params: ThreadSettingsUpdateParams; result: ThreadSettingsUpdateResponse };
   'turn/start': { params: Omit<TurnStartParams, 'input'> & { input: CodexUserInput[] }; result: TurnStartResponse };
   'turn/interrupt': { params: TurnInterruptParams; result: TurnInterruptResponse };
+  'model/list': { params: ModelListParams; result: ModelListResponse };
+  'plugin/list': { params: PluginListParams; result: PluginListResponse };
+  'collaborationMode/list': { params: CollaborationModeListParams; result: CollaborationModeListResponse };
   'skills/extraRoots/set': { params: SkillsExtraRootsSetParams; result: SkillsExtraRootsSetResponse };
 }
 

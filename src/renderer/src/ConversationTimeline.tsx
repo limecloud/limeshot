@@ -8,7 +8,6 @@ import {
   CircleX,
   Code2,
   FileCode2,
-  GitCompareArrows,
   Image,
   ListChecks,
   LoaderCircle,
@@ -41,10 +40,11 @@ interface ConversationTimelineProps {
   threadContext?: { title: string; subtitle?: string };
   onBackThread?: () => void;
   onOpenThread?: (threadId: string) => void;
+  onOpenChanges?: (path?: string) => void;
   openingThreadId?: string;
 }
 
-export function ConversationTimeline({ turns, loadState, errorMessage, t, threadContext, onBackThread, onOpenThread, openingThreadId }: ConversationTimelineProps) {
+export function ConversationTimeline({ turns, loadState, errorMessage, t, threadContext, onBackThread, onOpenThread, onOpenChanges, openingThreadId }: ConversationTimelineProps) {
   const itemCount = turns.reduce((count, turn) => count + turn.items.length, 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const tailRef = useRef<HTMLDivElement>(null);
@@ -73,7 +73,7 @@ export function ConversationTimeline({ turns, loadState, errorMessage, t, thread
       <div className="agent-timeline" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false">
         {loadState === 'loading' ? <div className="agent-loading-state" role="status" aria-label={t('agent.connecting')}><LoaderCircle className="spin" size={15} aria-hidden="true" /></div> : null}
         {itemCount === 0 && loadState !== 'loading' ? <p className="agent-empty">{t('agent.empty')}</p> : null}
-        {turns.map((turn) => <ConversationTurn turn={turn} t={t} onOpenThread={onOpenThread} openingThreadId={openingThreadId} key={turn.id} />)}
+        {turns.map((turn) => <ConversationTurn turn={turn} t={t} onOpenThread={onOpenThread} onOpenChanges={onOpenChanges} openingThreadId={openingThreadId} key={turn.id} />)}
         {errorMessage ? <p className="agent-error" role="alert">{errorMessage}</p> : null}
         <div className="agent-timeline-tail" ref={tailRef} aria-hidden="true" />
       </div>
@@ -81,23 +81,17 @@ export function ConversationTimeline({ turns, loadState, errorMessage, t, thread
   );
 }
 
-function ConversationTurn({ turn, t, onOpenThread, openingThreadId }: { turn: AgentTurnProjection; t: Translate; onOpenThread?: (threadId: string) => void; openingThreadId?: string }) {
+function ConversationTurn({ turn, t, onOpenThread, onOpenChanges, openingThreadId }: { turn: AgentTurnProjection; t: Translate; onOpenThread?: (threadId: string) => void; onOpenChanges?: (path?: string) => void; openingThreadId?: string }) {
   const hasAssistantOutput = turn.items.some((item) => item.type === 'agentMessage' && item.text.length > 0);
   return (
     <section className="agent-turn" data-status={turn.status} data-turn-id={turn.id}>
-      {turn.items.map((item) => <AgentItemRenderer item={item} t={t} onOpenThread={onOpenThread} openingThreadId={openingThreadId} key={item.id} />)}
+      {turn.items.map((item) => <AgentItemRenderer item={item} t={t} onOpenThread={onOpenThread} onOpenChanges={onOpenChanges} openingThreadId={openingThreadId} key={item.id} />)}
       {turn.plan ? (
         <section className="agent-turn-panel" data-panel="plan">
           <header><ListChecks size={14} aria-hidden="true" /><strong>{t('agent.turnPlan')}</strong></header>
           {turn.plan.explanation ? <p>{turn.plan.explanation}</p> : null}
           <ol>{turn.plan.steps.map((step, index) => <li data-status={step.status} key={`${index}-${step.step}`}><StatusIcon status={step.status === 'pending' ? undefined : step.status === 'inProgress' ? 'inProgress' : 'completed'} /><span>{step.step}</span></li>)}</ol>
         </section>
-      ) : null}
-      {turn.diff ? (
-        <details className="agent-turn-panel" data-panel="diff">
-          <summary><GitCompareArrows size={14} aria-hidden="true" /><strong>{t('agent.turnDiff')}</strong><ChevronRight size={13} aria-hidden="true" /></summary>
-          <pre>{preview(turn.diff, 24_000)}</pre>
-        </details>
       ) : null}
       {turn.status === 'inProgress' && !hasAssistantOutput ? (
         <div className="agent-response-pending" role="status"><LoaderCircle className="spin" size={13} aria-hidden="true" />{t('agent.status.inProgress')}</div>
@@ -112,7 +106,7 @@ function ConversationTurn({ turn, t, onOpenThread, openingThreadId }: { turn: Ag
   );
 }
 
-export function AgentItemRenderer({ item, t, onOpenThread, openingThreadId }: { item: AgentItemProjection; t: Translate; onOpenThread?: (threadId: string) => void; openingThreadId?: string }) {
+export function AgentItemRenderer({ item, t, onOpenThread, onOpenChanges, openingThreadId }: { item: AgentItemProjection; t: Translate; onOpenThread?: (threadId: string) => void; onOpenChanges?: (path?: string) => void; openingThreadId?: string }) {
   switch (item.type) {
     case 'userMessage':
       return (
@@ -170,11 +164,18 @@ export function AgentItemRenderer({ item, t, onOpenThread, openingThreadId }: { 
       );
     case 'fileChange':
       return (
-        <ItemDetails item={item} label={t('agent.item.fileChange')} summary={fileChangeSummary(item)} icon={<FileCode2 size={13} aria-hidden="true" />} t={t} open={item.status === 'inProgress'}>
-          <div className="agent-file-changes">{item.changes.map((change, index) => (
-            <FileChangeDetails change={change} initiallyOpen={item.changes.length === 1} t={t} key={`${change.path}-${index}`} />
-          ))}</div>
-        </ItemDetails>
+        <button
+          className="agent-item agent-activity-item agent-file-change-trigger"
+          type="button"
+          data-kind={item.kind}
+          data-item-id={item.id}
+          data-item-type={item.type}
+          data-status={item.status}
+          onClick={() => onOpenChanges?.(item.changes[0]?.path)}
+        >
+          <ItemHeader label={t('agent.item.fileChange')} summary={fileChangeSummary(item)} status={item.status} icon={<FileCode2 size={13} aria-hidden="true" />} t={t} />
+          <ChevronRight className="agent-disclosure" size={13} aria-hidden="true" />
+        </button>
       );
     case 'mcpToolCall':
       return (
@@ -268,16 +269,6 @@ function ItemDetails({ item, label, summary, displayStatus, icon, t, open, child
     <details className="agent-item agent-activity-item" data-kind={item.kind} data-item-id={item.id} data-item-type={item.type} data-status={displayStatus ?? item.status} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
       <summary><ItemHeader label={label} summary={summary} status={displayStatus ?? item.status} icon={icon} t={t} /><ChevronRight className="agent-disclosure" size={13} aria-hidden="true" /></summary>
       <div className="agent-item-detail">{children}</div>
-    </details>
-  );
-}
-
-function FileChangeDetails({ change, initiallyOpen, t }: { change: Extract<AgentItemProjection, { type: 'fileChange' }>['changes'][number]; initiallyOpen: boolean; t: Translate }) {
-  const [expanded, setExpanded] = useState(initiallyOpen);
-  return (
-    <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
-      <summary><span data-change-kind={fileChangeKind(change.kind)}>{change.kind}</span><code>{change.path}</code><ChevronRight size={12} aria-hidden="true" /></summary>
-      {change.diff ? <pre>{preview(change.diff, 24_000)}</pre> : <p className="agent-muted">{t('agent.noContent')}</p>}
     </details>
   );
 }
@@ -443,14 +434,6 @@ function singleLinePreview(value: string | undefined, limit = 120): string | und
   const normalized = value?.replace(/\s+/g, ' ').trim();
   if (!normalized) return undefined;
   return normalized.length <= limit ? normalized : `${normalized.slice(0, limit - 1)}…`;
-}
-
-function fileChangeKind(kind: string): 'added' | 'updated' | 'deleted' | 'moved' {
-  const normalized = kind.toLowerCase();
-  if (normalized.includes('add') || normalized.includes('create')) return 'added';
-  if (normalized.includes('delete') || normalized.includes('remove')) return 'deleted';
-  if (normalized.includes('move') || normalized.includes('rename')) return 'moved';
-  return 'updated';
 }
 
 function redactJson(value: AgentJsonValue): AgentJsonValue {

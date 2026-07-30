@@ -1,33 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronRight,
-  Folder,
+  GitCompareArrows,
   ListFilter,
-  LoaderCircle,
+  PanelBottom,
   PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
-  Send,
-  Settings2,
-  Sparkles,
-  Square,
+  PanelRight,
   X,
 } from 'lucide-react';
 
-import type {
-  BusinessProfile,
-  BusinessStatusResult,
-  ProjectSummary,
-  ProjectCreateResult,
-  ProjectReadResult,
-  ProductionPlan,
-} from '@business/generated';
+import type { BusinessStatusResult, ProjectSummary } from '@business/generated';
 import type {
   AgentConversationSummary,
+  AgentComposerAttachment,
+  AgentComposerCapability,
+  AgentComposerMode,
   AgentProjectConversationSummary,
   AgentEvent,
   AgentInteractionExternalOpenInput,
   AgentInteractionSubmitInput,
+  AgentModelSettings,
   AgentPendingInteractionProjection,
   AgentThreadInspectResult,
   AgentTurnProjection,
@@ -35,19 +26,44 @@ import type {
   ConversationStartResult,
 } from '../../shared/desktop';
 import { AppSidebar } from './AppSidebar';
-import { applyAgentActivityEvent, createAgentActivityState, dismissAgentNotice } from './agentActivityState';
+import {
+  recoverInteractions,
+  RuntimeStatus,
+  setInteractionStatus,
+  sidebarStartsCollapsed,
+  titleFromTurns,
+  upsertInteraction,
+} from './AppSupport';
+import { applyAgentActivityEvent, createAgentActivityState } from './agentActivityState';
 import { createAgentEventBatcher } from './agentEventBatcher';
 import { applyAgentEvent, runningTurn } from './agentState';
-import { ConversationStatusSurface } from './ConversationStatusSurface';
+import { ConversationComposer } from './ConversationComposer';
+import { DiffStats } from './ConversationReview';
 import { ConversationTimeline } from './ConversationTimeline';
-import { createTranslator, isTranslationKey, resolveLocale, type TranslationKey } from './i18n';
+import { summarizeConversationChanges } from './conversationChanges';
+import { createTranslator, resolveLocale } from './i18n';
 import { PendingInteractions } from './PendingInteractions';
-import { ProjectOverview } from './ProjectOverview';
-import { WorkspaceHome } from './WorkspaceHome';
+import { EnvironmentMenu } from './EnvironmentMenu';
+import {
+  WorkspaceChromeProvider,
+  WorkspacePanelSurfaces,
+  WorkspacePanelTabs,
+  type WorkspacePanelTarget,
+} from './WorkspaceChrome';
+import { ExtensionHost } from './extensions/ExtensionHost';
+import { useWorkspacePanels } from './useWorkspacePanels';
 
 type LoadState = 'loading' | 'ready' | 'unavailable';
 type ConversationLoadState = 'idle' | 'loading' | 'ready' | 'readOnly' | 'unavailable';
 interface StandaloneTarget { conversationId: string; threadId?: string }
+interface PendingFirstTurn {
+  targetKey: string;
+  text: string;
+  attachmentIds: string[];
+  capabilityIds: string[];
+  mode: AgentComposerMode;
+  initialModelSettings?: AgentModelSettings;
+}
 const MAIN_CONVERSATION_ID = 'main';
 
 export function App() {
@@ -55,23 +71,29 @@ export function App() {
   const t = useMemo(() => createTranslator(locale), [locale]);
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [runtime, setRuntime] = useState<BusinessStatusResult>();
-  const [profiles, setProfiles] = useState<BusinessProfile[]>([]);
-  const [mediaProbeReady, setMediaProbeReady] = useState(false);
-  const [mediaTranscodeReady, setMediaTranscodeReady] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [standaloneConversations, setStandaloneConversations] = useState<AgentConversationSummary[]>([]);
   const [projectConversations, setProjectConversations] = useState<Record<string, AgentProjectConversationSummary[]>>({});
   const [projectConversationFailedIds, setProjectConversationFailedIds] = useState<string[]>([]);
-  const [projectDetail, setProjectDetail] = useState<ProjectReadResult>();
-  const [plans, setPlans] = useState<ProductionPlan[]>([]);
-  const [projectLoadError, setProjectLoadError] = useState<string>();
-  const [selectedProfileId, setSelectedProfileId] = useState<string>('general');
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [draftProjectId, setDraftProjectId] = useState<string>();
+  const [extensionWorkspaceId, setExtensionWorkspaceId] = useState<string>();
   const [standaloneTarget, setStandaloneTarget] = useState<StandaloneTarget>();
   const [conversationId, setConversationId] = useState(MAIN_CONVERSATION_ID);
-  const [openingProject, setOpeningProject] = useState(false);
-  const [inspector, setInspector] = useState<'activity' | 'project'>();
+  const [activeSurface, setActiveSurface] = useState<'activity'>();
+  const [selectedChangePath, setSelectedChangePath] = useState<string>();
+  const {
+    rightPanel,
+    bottomPanel,
+    rightPanelExpanded,
+    setRightPanelExpanded,
+    resetWorkspacePanels,
+    openWorkspaceTab,
+    activateWorkspaceTab,
+    closeWorkspaceTab,
+    closeWorkspacePanel,
+    toggleWorkspacePanel,
+  } = useWorkspacePanels();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(sidebarStartsCollapsed);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -85,13 +107,26 @@ export function App() {
   const [interactionError, setInteractionError] = useState<string>();
   const [conversationLoadState, setConversationLoadState] = useState<ConversationLoadState>('idle');
   const [agentError, setAgentError] = useState<string>();
-  const [actionError, setActionError] = useState<string>();
   const [composerText, setComposerText] = useState('');
+  const [composerAttachments, setComposerAttachments] = useState<AgentComposerAttachment[]>([]);
+  const [composerCapabilities, setComposerCapabilities] = useState<AgentComposerCapability[]>([]);
+  const [composerMode, setComposerMode] = useState<AgentComposerMode>('default');
+  const [draftModelSettings, setDraftModelSettings] = useState<AgentModelSettings>();
   const [sending, setSending] = useState(false);
-  const pendingFirstTurn = useRef<{ targetKey: string; text: string } | undefined>(undefined);
+  const pendingFirstTurn = useRef<PendingFirstTurn | undefined>(undefined);
   const threadNavigationRequest = useRef(0);
-  const projectContextId = selectedProjectId ?? draftProjectId;
-
+  const resetComposer = useCallback(() => {
+    setComposerText('');
+    setComposerAttachments([]);
+    setComposerCapabilities([]);
+    setComposerMode('default');
+  }, []);
+  const completeComposerSubmission = useCallback((submittedMode: AgentComposerMode) => {
+    setComposerText('');
+    setComposerAttachments([]);
+    setComposerCapabilities([]);
+    if (submittedMode === 'goal') setComposerMode('default');
+  }, []);
   const load = useCallback(async () => {
     setLoadState('loading');
     setErrorMessage(undefined);
@@ -102,14 +137,8 @@ export function App() {
         window.limeShot.agent.listConversations(),
       ]);
       setRuntime(foundationResult.business);
-      setProfiles(foundationResult.profiles);
-      setMediaProbeReady(foundationResult.services.some((service) => service.serviceId === 'media.probe' && service.state === 'ready'));
-      setMediaTranscodeReady(foundationResult.services.some((service) => service.serviceId === 'media.assemble' && service.state === 'ready'));
       setProjects(projectResult);
       setStandaloneConversations(conversationResult);
-      setSelectedProfileId((current) => foundationResult.profiles.some((profile) => profile.profileId === current)
-        ? current
-        : foundationResult.profiles[0]?.profileId ?? 'general');
       setLoadState('ready');
     } catch (error) {
       setLoadState('unavailable');
@@ -164,33 +193,6 @@ export function App() {
   }, [t]);
 
   useEffect(() => {
-    if (!projectContextId) {
-      setProjectDetail(undefined);
-      setPlans([]);
-      setProjectLoadError(undefined);
-      return undefined;
-    }
-    let disposed = false;
-    void Promise.all([
-      window.limeShot.project.read(projectContextId),
-      window.limeShot.plan.list(projectContextId),
-    ])
-      .then(([result, planResult]) => {
-        if (!disposed) {
-          setProjectDetail(result);
-          setPlans(planResult.plans);
-          setProjectLoadError(undefined);
-        }
-      })
-      .catch((error) => {
-        if (!disposed) setProjectLoadError(error instanceof Error ? error.message : t('project.readFailed'));
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [projectContextId, t]);
-
-  useEffect(() => {
     threadNavigationRequest.current += 1;
     setThreadViews([]);
     setOpeningThreadId(undefined);
@@ -207,9 +209,12 @@ export function App() {
     const targetKey = selectedProjectId
       ? `project:${selectedProjectId}:${conversationId}`
       : `standalone:${standaloneTarget!.conversationId}`;
+    const pending = pendingFirstTurn.current;
+    const initialModelSettings = pending?.targetKey === targetKey ? pending.initialModelSettings : undefined;
+    const startRequest = initialModelSettings ? { ...request, initialModelSettings } : request;
     let disposed = false;
     setConversationLoadState('loading');
-    void window.limeShot.agent.startConversation(request)
+    void window.limeShot.agent.startConversation(startRequest)
       .then((result) => {
         if (disposed) return;
         setConversation(result);
@@ -229,16 +234,20 @@ export function App() {
             [request.projectId!]: [summary, ...(current[request.projectId!] ?? []).filter((item) => item.threadId !== result.threadId)],
           }));
         }
-        const pending = pendingFirstTurn.current;
-        if (pending?.targetKey === targetKey && result.access === 'active') {
+        const firstTurn = pendingFirstTurn.current;
+        if (firstTurn?.targetKey === targetKey && result.access === 'active') {
           pendingFirstTurn.current = undefined;
           setSending(true);
           void window.limeShot.agent.startTurn({
             projectId: request.projectId,
             conversationId: result.conversationId,
             threadId: result.threadId,
-            text: pending.text,
-          }).then(() => setComposerText('')).catch((error) => {
+            text: firstTurn.text,
+            attachmentIds: firstTurn.attachmentIds,
+            capabilityIds: firstTurn.capabilityIds,
+            mode: firstTurn.mode,
+            ...(firstTurn.initialModelSettings ? { modelSettings: firstTurn.initialModelSettings } : {}),
+          }).then(() => completeComposerSubmission(firstTurn.mode)).catch((error) => {
             console.error('Failed to send initial Codex turn', error);
             setAgentError(t('agent.sendFailed'));
           }).finally(() => setSending(false));
@@ -251,7 +260,7 @@ export function App() {
         setAgentError(t('agent.unavailable'));
     });
     return () => { disposed = true; };
-  }, [conversationId, selectedProjectId, standaloneTarget, t]);
+  }, [completeComposerSubmission, conversationId, selectedProjectId, standaloneTarget, t]);
 
   useEffect(() => {
     const batcher = createAgentEventBatcher((events) => {
@@ -282,9 +291,6 @@ export function App() {
         return;
       }
       if (event.type === 'turn.completed' && selectedProjectId) {
-        void window.limeShot.plan.list(selectedProjectId)
-          .then((result) => setPlans(result.plans))
-          .catch((error) => setProjectLoadError(error instanceof Error ? error.message : t('project.readFailed')));
         void window.limeShot.agent.listProjectConversations({ projectId: selectedProjectId })
           .then((result) => setProjectConversations((current) => ({ ...current, [selectedProjectId]: result.conversations })))
           .catch(() => setProjectConversationFailedIds((current) => current.includes(selectedProjectId) ? current : [...current, selectedProjectId]));
@@ -298,20 +304,22 @@ export function App() {
     };
   }, [selectedProjectId, standaloneTarget, t]);
 
-  const text = (key: string, fallback: string): string => isTranslationKey(key) ? t(key) : fallback;
   const collapseSidebarOnNarrowWindow = () => {
     if (window.matchMedia?.('(max-width: 680px)').matches) setSidebarCollapsed(true);
   };
-  const selectedProfile = profiles.find((profile) => profile.profileId === selectedProfileId);
   const selectedProject = projects.find((project) => project.projectId === selectedProjectId);
-  const projectContext = projects.find((project) => project.projectId === projectContextId);
-  const selectedProjectDetail = projectContext && projectDetail?.project.projectId === projectContext.projectId
-    ? projectDetail
-    : undefined;
+  const extensionWorkspace = projects.find((project) => project.projectId === extensionWorkspaceId);
   const activeTurn = conversation ? runningTurn(conversation.turns) : undefined;
   const threadView = threadViews.at(-1);
   const visibleThreadId = threadView?.threadId ?? conversation?.threadId;
+  const visibleTurns = threadView?.turns ?? conversation?.turns ?? [];
+  const conversationChanges = useMemo(() => summarizeConversationChanges(visibleTurns), [visibleTurns]);
+
+  useEffect(() => {
+    setSelectedChangePath(undefined);
+  }, [visibleThreadId]);
   const visibleThreadActivity = visibleThreadId ? activityState.threads[visibleThreadId] : undefined;
+  const conversationThreadActivity = conversation ? activityState.threads[conversation.threadId] : undefined;
   const projectThreadIds = useMemo(
     () => new Set(Object.values(projectConversations).flatMap((items) => items.map((item) => item.threadId))),
     [projectConversations],
@@ -325,6 +333,12 @@ export function App() {
     || visibleThreadActivity?.lifecycle === 'closed'
     || visibleThreadActivity?.status?.type === 'systemError';
   const conversationTitle = visibleThreadActivity?.name?.trim() || titleFromTurns(conversation?.turns ?? [], t('agent.newConversation'));
+  const currentModel = conversationThreadActivity?.settings?.model
+    ?? conversationThreadActivity?.model?.current
+    ?? conversation?.modelSettings?.model;
+  const currentEffort = conversationThreadActivity?.settings?.effort ?? conversation?.modelSettings?.effort;
+  const currentModelSettings = currentModel && currentEffort ? { model: currentModel, effort: currentEffort } : undefined;
+  const hasComposerInput = Boolean(composerText.trim() || composerAttachments.length > 0 || composerCapabilities.length > 0);
   const activeProjectConversation: AgentProjectConversationSummary | undefined = selectedProject && conversation
     ? {
         projectId: selectedProject.projectId,
@@ -345,18 +359,16 @@ export function App() {
     && !runtimeReadOnly
     && !activeTurn
     && !sending
-    && composerText.trim(),
+    && hasComposerInput
+    && (composerMode !== 'goal' || composerText.trim()),
   );
 
-  const onDirectoryOpened = (result: ProjectCreateResult) => {
-    setProjects((current) => [result.project, ...current.filter((item) => item.projectId !== result.project.projectId)]);
-    setSelectedProfileId(result.project.profileId);
-    setDraftProjectId(result.project.projectId);
+  const openReview = (path?: string, target: WorkspacePanelTarget = 'right') => {
+    setSelectedChangePath(path ?? conversationChanges.files[0]?.path);
+    openWorkspaceTab('review', target);
   };
 
   const openProject = (projectId: string) => {
-    const project = projects.find((item) => item.projectId === projectId);
-    if (project) setSelectedProfileId(project.profileId);
     threadNavigationRequest.current += 1;
     pendingFirstTurn.current = undefined;
     setStandaloneTarget(undefined);
@@ -369,9 +381,11 @@ export function App() {
     setThreadViews([]);
     setOpeningThreadId(undefined);
     setThreadViewError(undefined);
-    setInspector(undefined);
+    setActiveSurface(undefined);
+    resetWorkspacePanels();
+    setExtensionWorkspaceId(undefined);
     setAgentError(undefined);
-    setComposerText('');
+    resetComposer();
     collapseSidebarOnNarrowWindow();
   };
 
@@ -380,23 +394,25 @@ export function App() {
     setSelectedProjectId(undefined);
     setDraftProjectId(undefined);
     setStandaloneTarget({ conversationId: threadId, threadId });
-    setInspector(undefined);
+    setActiveSurface(undefined);
+    resetWorkspacePanels();
+    setExtensionWorkspaceId(undefined);
     setSending(false);
-    setComposerText('');
+    resetComposer();
     collapseSidebarOnNarrowWindow();
   };
 
   const openProjectConversation = (projectId: string, nextConversationId: string) => {
-    const project = projects.find((item) => item.projectId === projectId);
-    if (project) setSelectedProfileId(project.profileId);
     pendingFirstTurn.current = undefined;
     setStandaloneTarget(undefined);
     setDraftProjectId(undefined);
     setSending(false);
     setSelectedProjectId(projectId);
     setConversationId(nextConversationId);
-    setInspector(undefined);
-    setComposerText('');
+    setActiveSurface(undefined);
+    resetWorkspacePanels();
+    setExtensionWorkspaceId(undefined);
+    resetComposer();
     collapseSidebarOnNarrowWindow();
   };
 
@@ -428,7 +444,7 @@ export function App() {
     setConversation(undefined);
     setThreadViews([]);
     setSending(false);
-    setComposerText('');
+    resetComposer();
     if (selectedProjectId) {
       setDraftProjectId(selectedProjectId);
       setSelectedProjectId(undefined);
@@ -450,7 +466,6 @@ export function App() {
   const renameProject = async (projectId: string, name: string) => {
     const result = await window.limeShot.project.rename({ projectId, name });
     setProjects((current) => current.map((project) => project.projectId === projectId ? result.project : project));
-    setProjectDetail((current) => current?.project.projectId === projectId ? { ...current, project: result.project } : current);
   };
 
   const revealProject = (projectId: string) => window.limeShot.project.reveal(projectId);
@@ -498,41 +513,39 @@ export function App() {
       setStandaloneTarget(undefined);
       setConversation(undefined);
       setThreadViews([]);
-      setInspector(undefined);
-      setComposerText('');
+      setActiveSurface(undefined);
+      resetComposer();
     }
+    if (extensionWorkspaceId === projectId) setExtensionWorkspaceId(undefined);
   };
 
-  const openProjectDirectory = async () => {
-    if (!selectedProfile || openingProject) return;
-    setOpeningProject(true);
-    setActionError(undefined);
-    try {
-      const result = await window.limeShot.project.open({
-        profileId: selectedProfile.profileId,
-        language: locale,
-      });
-      if (result) onDirectoryOpened(result);
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : t('project.openFailed'));
-    } finally {
-      setOpeningProject(false);
-    }
+  const refreshProjects = async (selectedWorkspaceId: string) => {
+    const nextProjects = await window.limeShot.project.list();
+    setProjects(nextProjects);
+    setDraftProjectId(selectedWorkspaceId);
+    setComposerCapabilities([]);
   };
 
   const beginFromHome = () => {
     const subject = composerText.trim();
-    if (!subject) return;
+    if (!hasComposerInput || (composerMode === 'goal' && !subject)) return;
+    const firstTurn = {
+      text: subject,
+      attachmentIds: composerAttachments.map((attachment) => attachment.id),
+      capabilityIds: composerCapabilities.map((capability) => capability.id),
+      mode: composerMode,
+      initialModelSettings: draftModelSettings,
+    };
     if (draftProjectId) {
       const nextConversationId = `conversation-${crypto.randomUUID()}`;
-      pendingFirstTurn.current = { targetKey: `project:${draftProjectId}:${nextConversationId}`, text: subject };
+      pendingFirstTurn.current = { targetKey: `project:${draftProjectId}:${nextConversationId}`, ...firstTurn };
       setStandaloneTarget(undefined);
       setSelectedProjectId(draftProjectId);
       setDraftProjectId(undefined);
       setConversationId(nextConversationId);
     } else {
       const nextConversationId = `standalone-${crypto.randomUUID()}`;
-      pendingFirstTurn.current = { targetKey: `standalone:${nextConversationId}`, text: subject };
+      pendingFirstTurn.current = { targetKey: `standalone:${nextConversationId}`, ...firstTurn };
       setSelectedProjectId(undefined);
       setStandaloneTarget({ conversationId: nextConversationId });
     }
@@ -547,9 +560,10 @@ export function App() {
     setStandaloneTarget(undefined);
     setConversation(undefined);
     setConversationId(MAIN_CONVERSATION_ID);
-    setInspector(undefined);
+    setActiveSurface(undefined);
+    setExtensionWorkspaceId(undefined);
     setAgentError(undefined);
-    setComposerText('');
+    resetComposer();
     collapseSidebarOnNarrowWindow();
   };
 
@@ -563,8 +577,12 @@ export function App() {
         conversationId: conversation.conversationId,
         threadId: conversation.threadId,
         text: composerText.trim(),
+        attachmentIds: composerAttachments.map((attachment) => attachment.id),
+        capabilityIds: composerCapabilities.map((capability) => capability.id),
+        mode: composerMode,
+        ...(currentModelSettings ? { modelSettings: currentModelSettings } : {}),
       });
-      setComposerText('');
+      completeComposerSubmission(composerMode);
     } catch (error) {
       console.error('Failed to send Codex turn', error);
       setAgentError(t('agent.sendFailed'));
@@ -627,29 +645,8 @@ export function App() {
     await window.limeShot.agent.openInteractionExternal(input);
   };
 
-  const projectInspectorSurface = projectContext && inspector === 'project' ? (
-    <aside className="workspace-inspector project-inspector" aria-label={t('project.details')}>
-      <header>
-        <div><strong>{projectContext.name}</strong><span>{projectContext.workspaceName}</span></div>
-        <button type="button" onClick={() => setInspector(undefined)} title={t('project.closeDetails')}><X size={16} aria-hidden="true" /></button>
-      </header>
-      <div className="workspace-inspector-body project-inspector-body">
-        {selectedProjectDetail ? (
-          <ProjectOverview
-            detail={selectedProjectDetail}
-            plans={plans}
-            mediaProbeReady={mediaProbeReady}
-            mediaTranscodeReady={mediaTranscodeReady}
-            onBriefUpdated={(brief) => setProjectDetail((current) => current ? { ...current, brief } : current)}
-            onPlanUpdated={(plan) => setPlans((current) => current.map((item) => item.planId === plan.planId ? plan : item))}
-            t={t}
-          />
-        ) : projectLoadError ? <p className="project-read-error" role="alert">{projectLoadError}</p> : <p className="project-loading">{t('project.loading')}</p>}
-      </div>
-    </aside>
-  ) : null;
-
   return (
+    <WorkspaceChromeProvider>
     <main className="app-shell" data-testid="app-shell" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}>
       {!sidebarCollapsed ? (
         <>
@@ -669,7 +666,6 @@ export function App() {
               <RuntimeStatus
                 loadState={loadState}
                 runtime={runtime}
-                profileLabel={text(selectedProfile?.nameKey ?? '', selectedProfile?.profileId ?? 'general')}
                 errorMessage={errorMessage}
                 onRetry={load}
                 t={t}
@@ -684,7 +680,7 @@ export function App() {
             onProjectConversationSelect={openProjectConversation}
             onProjectEdit={(projectId) => {
               openProject(projectId);
-              setInspector('project');
+              setExtensionWorkspaceId(projectId);
             }}
             onProjectReveal={revealProject}
             onProjectMarkAllRead={markProjectConversationsRead}
@@ -704,47 +700,126 @@ export function App() {
       ) : null}
 
       <section className="workspace main-surface">
-        <header className="workspace-toolbar" data-home={!selectedProject && !standaloneTarget ? 'true' : 'false'} data-testid="workspace-toolbar">
-          {sidebarCollapsed ? (
-            <button type="button" onClick={() => setSidebarCollapsed(false)} title={t('nav.expandSidebar')}>
-              <PanelLeftOpen size={15} aria-hidden="true" />
-            </button>
-          ) : null}
-          {selectedProject || standaloneTarget ? <span className="workspace-toolbar-title">{conversationTitle}</span> : null}
-          <span className="workspace-toolbar-spacer" />
-          {selectedProject || standaloneTarget ? (
-            <button
-              type="button"
-              data-active={inspector === 'activity' ? 'true' : 'false'}
-              onClick={() => setInspector((current) => current === 'activity' ? undefined : 'activity')}
-              title={inspector === 'activity' ? t('activity.closePanel') : t('activity.openPanel')}
-            >
-              <ListFilter size={15} aria-hidden="true" />
-            </button>
-          ) : null}
-          {selectedProject ? (
-            <button
-              type="button"
-              data-active={inspector === 'project' ? 'true' : 'false'}
-              onClick={() => setInspector((current) => current === 'project' ? undefined : 'project')}
-              title={inspector === 'project' ? t('project.closeDetails') : t('project.openDetails')}
-            >
-              {inspector === 'project' ? <PanelRightClose size={15} aria-hidden="true" /> : <PanelRightOpen size={15} aria-hidden="true" />}
-            </button>
+        <header
+          className="workspace-toolbar"
+          data-home={!selectedProject && !standaloneTarget && !extensionWorkspace ? 'true' : 'false'}
+          data-right-panel={rightPanel.open ? 'true' : 'false'}
+          data-panel-expanded={rightPanel.open && rightPanelExpanded ? 'true' : 'false'}
+          data-testid="workspace-toolbar"
+        >
+          <div className="workspace-toolbar-conversation">
+            {sidebarCollapsed ? (
+              <button type="button" onClick={() => setSidebarCollapsed(false)} title={t('nav.expandSidebar')}>
+                <PanelLeftOpen size={15} aria-hidden="true" />
+              </button>
+            ) : null}
+            {extensionWorkspace ? (
+              <span className="workspace-toolbar-title">{extensionWorkspace.name}</span>
+            ) : selectedProject || standaloneTarget ? (
+              <span className="workspace-toolbar-title">{conversationTitle}</span>
+            ) : null}
+            <span className="workspace-toolbar-spacer" />
+            {selectedProject || standaloneTarget ? (
+              <>
+                <button
+                  className="workspace-environment-toggle"
+                  type="button"
+                  data-active={activeSurface === 'activity' ? 'true' : 'false'}
+                  onClick={() => setActiveSurface((current) => current === 'activity' ? undefined : 'activity')}
+                  title={t('environment.title')}
+                >
+                  <ListFilter size={15} aria-hidden="true" />
+                </button>
+                <button
+                  className="workspace-review-toggle"
+                  type="button"
+                  data-active={rightPanel.open && rightPanel.activeTab === 'review' ? 'true' : 'false'}
+                  data-testid="workspace-review-toggle"
+                  onClick={() => openReview()}
+                  title={t('inspector.openReview')}
+                >
+                  <GitCompareArrows size={15} aria-hidden="true" />
+                  <span className="workspace-review-toggle-label">{t('inspector.changes')}</span>
+                  <DiffStats additions={conversationChanges.additions} deletions={conversationChanges.deletions} />
+                </button>
+                <button
+                  className="workspace-panel-toggle"
+                  type="button"
+                  data-active={bottomPanel.open ? 'true' : 'false'}
+                  onClick={() => toggleWorkspacePanel('bottom')}
+                  title={t('workspace.toggleBottomPanel')}
+                  aria-label={t('workspace.toggleBottomPanel')}
+                >
+                  <PanelBottom size={15} aria-hidden="true" />
+                </button>
+                <button
+                  className="workspace-panel-toggle"
+                  type="button"
+                  data-active={rightPanel.open ? 'true' : 'false'}
+                  onClick={() => toggleWorkspacePanel('right')}
+                  title={t('workspace.toggleSidePanel')}
+                  aria-label={t('workspace.toggleSidePanel')}
+                >
+                  <PanelRight size={15} aria-hidden="true" />
+                </button>
+              </>
+            ) : null}
+            {extensionWorkspace ? (
+              <button
+                type="button"
+                onClick={() => setExtensionWorkspaceId(undefined)}
+                title={t('action.close')}
+              >
+                <X size={15} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+          {rightPanel.open ? (
+            <WorkspacePanelTabs
+              target="right"
+              tabs={rightPanel.tabs}
+              activeTab={rightPanel.activeTab}
+              expanded={rightPanelExpanded}
+              onActivate={(tab) => activateWorkspaceTab(tab, 'right')}
+              onAdd={(tab) => openWorkspaceTab(tab, 'right')}
+              onCloseTab={(tab) => closeWorkspaceTab(tab, 'right')}
+              onClosePanel={() => closeWorkspacePanel('right')}
+              onExpandedChange={setRightPanelExpanded}
+              t={t}
+            />
           ) : null}
         </header>
 
-        {selectedProject || standaloneTarget ? (
-          <div className="project-conversation-layout" data-inspector={inspector ?? 'closed'}>
-            <section
-              className="conversation-workspace"
-              data-testid="agent-panel"
-              data-agent-state={conversationLoadState}
-              data-conversation-id={conversation?.conversationId ?? ''}
-              data-thread-id={conversation?.threadId ?? ''}
-            >
+        {extensionWorkspace ? (
+          <ExtensionHost
+            extensionId="production"
+            surface="workspace"
+            context={{
+              locale,
+              workspace: {
+                workspaceId: extensionWorkspace.projectId,
+                name: extensionWorkspace.name,
+                workspaceLabel: extensionWorkspace.workspaceName,
+              },
+            }}
+          />
+        ) : selectedProject || standaloneTarget ? (
+          <div
+            className="workspace-thread-shell"
+            data-right-panel={rightPanel.open ? 'true' : 'false'}
+            data-panel-expanded={rightPanel.open && rightPanelExpanded ? 'true' : 'false'}
+            data-testid="workspace-thread-shell"
+          >
+            <div className="workspace-primary" data-bottom-panel={bottomPanel.open ? 'true' : 'false'}>
+              <section
+                className="conversation-workspace"
+                data-testid="agent-panel"
+                data-agent-state={conversationLoadState}
+                data-conversation-id={conversation?.conversationId ?? ''}
+                data-thread-id={conversation?.threadId ?? ''}
+              >
               <ConversationTimeline
-                turns={threadView?.turns ?? conversation?.turns ?? []}
+                turns={visibleTurns}
                 loadState={threadView ? 'readOnly' : conversationLoadState}
                 errorMessage={threadViewError ?? agentError}
                 t={t}
@@ -754,169 +829,152 @@ export function App() {
                 } : undefined}
                 onBackThread={threadView ? closeSubThread : undefined}
                 onOpenThread={(threadId) => void openSubThread(threadId)}
+                onOpenChanges={(path) => {
+                  openReview(path);
+                }}
                 openingThreadId={openingThreadId}
               />
+              {activeSurface === 'activity' ? (
+                <EnvironmentMenu
+                  projectId={selectedProject?.projectId}
+                  workspaceLabel={selectedProject?.workspaceName ?? visibleThreadActivity?.settings?.cwd}
+                  turns={visibleTurns}
+                  changes={conversationChanges}
+                  onOpenReview={() => openReview()}
+                  onOpenTerminal={() => openWorkspaceTab('terminal', 'right')}
+                  onOpenTasks={() => openWorkspaceTab('tasks', 'right')}
+                  onOpenBrowser={() => openWorkspaceTab('browser', 'right')}
+                  onOpenFiles={() => openWorkspaceTab('files', 'right')}
+                  onClose={() => setActiveSurface(undefined)}
+                  t={t}
+                />
+              ) : null}
               <PendingInteractions
                 interactions={interactions}
                 currentThreadId={threadView?.threadId ?? conversation?.threadId}
-                turns={threadView?.turns ?? conversation?.turns ?? []}
+                turns={visibleTurns}
                 onSubmit={submitPendingInteraction}
                 onOpenExternal={openInteractionExternal}
                 errorMessage={interactionError}
                 t={t}
               />
-              <footer className="composer-shell">
-                <div className="composer-field">
-                  <textarea
-                    aria-label={threadView ? t('agent.subThreadReadOnly') : t('agent.inputPlaceholder')}
-                    placeholder={threadView ? t('agent.subThreadReadOnly') : t('agent.inputPlaceholder')}
-                    value={composerText}
-                    rows={2}
-                    disabled={Boolean(threadView) || runtimeReadOnly || conversationLoadState !== 'ready' || Boolean(activeTurn) || sending}
-                    onChange={(event) => setComposerText(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.shiftKey && canSend) {
-                        event.preventDefault();
-                        void sendTurn();
-                      }
-                    }}
-                  />
-                  <footer>
-                    <div className="composer-context">
-                      <span><Sparkles size={14} aria-hidden="true" />{text(selectedProfile?.nameKey ?? '', selectedProfile?.profileId ?? selectedProject?.profileId ?? 'general')}</span>
-                      {selectedProject ? <span><Folder size={14} aria-hidden="true" />{selectedProject.workspaceName}</span> : <span>{t('home.noProject')}</span>}
-                    </div>
-                    {!threadView && activeTurn ? (
-                      <button className="send-button" type="button" onClick={() => void interruptTurn()} title={t('agent.interrupt')}>
-                        <Square size={15} aria-hidden="true" />
-                      </button>
-                    ) : (
-                      <button className="send-button" type="button" disabled={!canSend} onClick={() => void sendTurn()} title={t('agent.send')}>
-                        <Send size={17} aria-hidden="true" />
-                      </button>
-                    )}
-                  </footer>
-                </div>
-              </footer>
-            </section>
+              <ConversationComposer
+                surface="thread"
+                context={{
+                  projectId: selectedProject?.projectId ?? null,
+                  conversationId: conversation?.conversationId,
+                  threadId: conversation?.threadId,
+                }}
+                text={composerText}
+                attachments={composerAttachments}
+                capabilities={composerCapabilities}
+                mode={composerMode}
+                disabled={Boolean(threadView) || runtimeReadOnly || conversationLoadState !== 'ready' || sending}
+                active={Boolean(!threadView && activeTurn)}
+                canSubmit={canSend}
+                placeholder={threadView ? t('agent.subThreadReadOnly') : t('agent.inputPlaceholder')}
+                inputLabel={threadView ? t('agent.subThreadReadOnly') : t('agent.inputPlaceholder')}
+                modelTarget={conversation ? {
+                  projectId: selectedProject?.projectId ?? null,
+                  conversationId: conversation.conversationId,
+                  threadId: conversation.threadId,
+                } : undefined}
+                currentModel={currentModel}
+                currentEffort={currentEffort}
+                projectLabel={selectedProject?.workspaceName}
+                onTextChange={setComposerText}
+                onAttachmentsChange={setComposerAttachments}
+                onCapabilitiesChange={setComposerCapabilities}
+                onModeChange={setComposerMode}
+                onSubmit={() => void sendTurn()}
+                onInterrupt={() => void interruptTurn()}
+                onError={setAgentError}
+                t={t}
+              />
+              </section>
 
-            {inspector === 'activity' ? (
-              <aside className="workspace-inspector conversation-activity-inspector" aria-label={t('activity.region')}>
-                <header>
-                  <strong>{t('activity.region')}</strong>
-                  <button type="button" onClick={() => setInspector(undefined)} title={t('activity.closePanel')}><X size={16} aria-hidden="true" /></button>
-                </header>
-                <div className="workspace-inspector-body conversation-activity-inspector-body">
-                  <ConversationStatusSurface
-                    state={activityState}
-                    threadId={visibleThreadId}
-                    onDismissNotice={(noticeId) => setActivityState((current) => dismissAgentNotice(current, noticeId))}
-                    onSelectFile={(path) => {
-                      if (!threadView && !runtimeReadOnly) setComposerText((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}@${path} `);
-                    }}
+              {bottomPanel.open ? (
+                <section className="workspace-bottom-panel" aria-label={t('workspace.bottomPanel')}>
+                  <WorkspacePanelTabs
+                    target="bottom"
+                    tabs={bottomPanel.tabs}
+                    activeTab={bottomPanel.activeTab}
+                    onActivate={(tab) => activateWorkspaceTab(tab, 'bottom')}
+                    onAdd={(tab) => openWorkspaceTab(tab, 'bottom')}
+                    onCloseTab={(tab) => closeWorkspaceTab(tab, 'bottom')}
+                    onClosePanel={() => closeWorkspacePanel('bottom')}
                     t={t}
                   />
-                </div>
+                  <WorkspacePanelSurfaces
+                    tabs={bottomPanel.tabs}
+                    activeTab={bottomPanel.activeTab}
+                    target="bottom"
+                    turns={visibleTurns}
+                    projectId={selectedProject?.projectId}
+                    selectedChangePath={selectedChangePath}
+                    onSelectedChangePathChange={setSelectedChangePath}
+                    onOpenReview={(path) => openReview(path, 'bottom')}
+                    onOpenThread={(threadId) => void openSubThread(threadId)}
+                    openingThreadId={openingThreadId}
+                    t={t}
+                  />
+                </section>
+              ) : null}
+            </div>
+
+            {rightPanel.open ? (
+              <aside className="workspace-right-panel" aria-label={t('workspace.rightPanel')}>
+                <WorkspacePanelSurfaces
+                  tabs={rightPanel.tabs}
+                  activeTab={rightPanel.activeTab}
+                  target="right"
+                  turns={visibleTurns}
+                  projectId={selectedProject?.projectId}
+                  selectedChangePath={selectedChangePath}
+                  onSelectedChangePathChange={setSelectedChangePath}
+                  onOpenReview={(path) => openReview(path, 'right')}
+                  onOpenThread={(threadId) => void openSubThread(threadId)}
+                  openingThreadId={openingThreadId}
+                  t={t}
+                />
               </aside>
-            ) : projectInspectorSurface}
+            ) : null}
           </div>
         ) : (
-          <div className="project-conversation-layout" data-inspector={projectInspectorSurface ? 'project' : 'closed'}>
-            <WorkspaceHome
-              profiles={profiles}
-              projects={projects}
-              selectedProfileId={selectedProfileId}
-              selectedProjectId={draftProjectId}
-              composerText={composerText}
-              submitting={openingProject}
-              onProfileSelect={setSelectedProfileId}
-              onComposerTextChange={setComposerText}
-              onProjectSelect={setDraftProjectId}
-              onProjectBrowse={() => void openProjectDirectory()}
-              onSubmit={beginFromHome}
-              text={text}
-              t={t}
+          <div className="project-conversation-layout" data-workspace-mode="conversation">
+            <ExtensionHost
+              extensionId="production"
+              surface="home"
+              context={{
+                locale,
+                workspaces: projects.map((project) => ({
+                  workspaceId: project.projectId,
+                  name: project.name,
+                  workspaceLabel: project.workspaceName,
+                })),
+                selectedWorkspaceId: draftProjectId,
+                composerText,
+                composerAttachments,
+                composerCapabilities,
+                composerMode,
+                modelSettings: draftModelSettings,
+                onComposerTextChange: setComposerText,
+                onComposerAttachmentsChange: setComposerAttachments,
+                onComposerCapabilitiesChange: setComposerCapabilities,
+                onComposerModeChange: setComposerMode,
+                onModelSettingsChange: setDraftModelSettings,
+                onWorkspaceSelect: (workspaceId) => {
+                  setDraftProjectId(workspaceId);
+                  setComposerCapabilities([]);
+                },
+                onWorkspaceOpened: refreshProjects,
+                onSubmit: beginFromHome,
+              }}
             />
-            {projectInspectorSurface}
           </div>
         )}
       </section>
-
-      {openingProject ? <div className="project-creating-indicator" role="status"><LoaderCircle size={15} aria-hidden="true" />{t('project.opening')}</div> : null}
-      {actionError ? <div className="app-action-error" role="alert"><span>{actionError}</span><button type="button" onClick={() => setActionError(undefined)} title={t('project.dialogClose')}><X size={14} aria-hidden="true" /></button></div> : null}
     </main>
-  );
-}
-
-function titleFromTurns(turns: AgentTurnProjection[], fallback: string): string {
-  const firstUserMessage = turns.flatMap((turn) => turn.items).find((item) => item.kind === 'user')?.text.trim();
-  if (!firstUserMessage) return fallback;
-  return firstUserMessage.length > 28 ? `${firstUserMessage.slice(0, 28)}...` : firstUserMessage;
-}
-
-function sidebarStartsCollapsed(): boolean {
-  return window.matchMedia?.('(max-width: 680px)').matches ?? false;
-}
-
-function upsertInteraction(current: AgentPendingInteractionProjection[], next: AgentPendingInteractionProjection): AgentPendingInteractionProjection[] {
-  const updated = current.some((interaction) => interaction.interactionId === next.interactionId)
-    ? current.map((interaction) => interaction.interactionId === next.interactionId ? next : interaction)
-    : [...current, next];
-  return updated.sort((left, right) => left.createdAt - right.createdAt).slice(-50);
-}
-
-function recoverInteractions(current: AgentPendingInteractionProjection[], recovered: AgentPendingInteractionProjection[]): AgentPendingInteractionProjection[] {
-  return recovered.reduce((result, interaction) => {
-    const existing = result.find((entry) => entry.interactionId === interaction.interactionId);
-    return existing && existing.status !== 'pending' ? result : upsertInteraction(result, interaction);
-  }, current);
-}
-
-function setInteractionStatus(
-  current: AgentPendingInteractionProjection[],
-  interactionId: string,
-  status: AgentPendingInteractionProjection['status'],
-  onlyFrom?: AgentPendingInteractionProjection['status'],
-): AgentPendingInteractionProjection[] {
-  return current.map((interaction) => interaction.interactionId === interactionId && (!onlyFrom || interaction.status === onlyFrom)
-    ? { ...interaction, status } as AgentPendingInteractionProjection
-    : interaction);
-}
-
-interface RuntimeStatusProps {
-  loadState: LoadState;
-  runtime?: BusinessStatusResult;
-  profileLabel: string;
-  errorMessage?: string;
-  onRetry: () => Promise<void>;
-  t: (key: TranslationKey) => string;
-}
-
-function RuntimeStatus({ loadState, runtime, profileLabel, errorMessage, onRetry, t }: RuntimeStatusProps) {
-  const label = loadState === 'ready'
-    ? t('runtime.ready')
-    : loadState === 'loading'
-      ? t('runtime.connecting')
-      : t('runtime.unavailable');
-
-  return (
-    <div
-      className="runtime-status"
-      data-testid="runtime-status"
-      data-state={loadState}
-      data-runtime-source="business-service"
-      title={errorMessage ?? (runtime ? `${label} · ${t('runtime.pid')} ${runtime.serverPid} · ${t('runtime.protocol')} ${runtime.protocolVersion}` : label)}
-      aria-label={label}
-      aria-live="polite"
-    >
-      <Settings2 className="runtime-settings-icon" size={14} aria-hidden="true" />
-      <span className="runtime-label">{profileLabel}</span>
-      <span className="runtime-dot" aria-hidden="true" />
-      {loadState === 'unavailable' ? (
-        <button type="button" className="runtime-retry" onClick={() => void onRetry()} title={t('runtime.retry')}>
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
-      ) : null}
-    </div>
+    </WorkspaceChromeProvider>
   );
 }

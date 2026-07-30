@@ -25,7 +25,7 @@
 | 4 | `plan` | Proposed Plan | 独立计划块 | 展开、复制，完成态替换流草稿 |
 | 5 | `reasoning` | Reasoning | 折叠活动 | 展开 summary；raw content 受策略控制 |
 | 6 | `commandExecution` | Shell/探索活动 | 紧凑命令行 | 输出、审批、完整 transcript、终止锚点 |
-| 7 | `fileChange` | 文件修改 | 文件摘要 + Diff | 逐文件展开、审批、打开文件 |
+| 7 | `fileChange` | 文件修改 | 紧凑文件摘要行 | 打开 Review 工作区、审批、选择文件 |
 | 8 | `mcpToolCall` | MCP 工具 | server/tool 活动行 | 参数、progress、内容/资源/媒体结果 |
 | 9 | `dynamicToolCall` | LimeShot 业务工具 | namespace/tool 活动行 | 参数、text/image/audio 结果、业务详情 |
 | 10 | `collabAgentToolCall` | 多 Agent 调度 | Agent 活动行 | 打开/切换目标 Agent |
@@ -133,8 +133,8 @@
 字段：`changes[{path, kind, diff}]`、`status`。
 
 - 摘要显示新增/修改/删除/重命名文件数与行数统计。
-- 文件列表按上游顺序；每个文件可独立展开 unified diff。
-- Diff 使用 parser 和语法高亮，显示 hunk、行号、insert/delete/context，支持长行换行。
+- 时间线只显示紧凑摘要，不内联文件或 Turn diff；点击后打开 Review 工作区，并默认选中该 item 的首个文件。
+- 桌面 Review 保留固定宽度对话列，Diff 占主面积，文件导航位于最右并按路径树展示；选中文件后在独立 viewer 显示 diff。Diff 使用 parser 和语法高亮，显示 hunk、行号、insert/delete/context，并对长内容做有界预览和水平滚动。
 - `item/fileChange/patchUpdated` 替换当前 changes snapshot，不把重复 diff 当字符串 append。
 - `item/fileChange/outputDelta` 已 deprecated 且当前不再发送；若收到只进兼容诊断，不能覆盖结构化 patch。
 - approval 展示 reason 和可选 grantRoot；接受/本次拒绝/拒绝并停止映射上游决定。

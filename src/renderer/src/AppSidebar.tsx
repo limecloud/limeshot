@@ -556,8 +556,8 @@ export function AppSidebar({
         {noSearchResults ? <p className="project-nav-empty sidebar-search-empty">{t('nav.noSearchResults')}</p> : null}
       </div>
 
-      {actionError ? <div className="sidebar-action-error" role="alert"><span>{actionError}</span><button type="button" onClick={() => setActionError(undefined)} title={t('project.dialogClose')}><X size={12} aria-hidden="true" /></button></div> : null}
-      {!actionError && actionNotice ? <div className="sidebar-action-notice" role="status"><span>{actionNotice}</span><button type="button" onClick={() => setActionNotice(undefined)} title={t('project.dialogClose')}><X size={12} aria-hidden="true" /></button></div> : null}
+      {actionError ? <div className="sidebar-action-error" role="alert"><span>{actionError}</span><button type="button" onClick={() => setActionError(undefined)} title={t('action.close')}><X size={12} aria-hidden="true" /></button></div> : null}
+      {!actionError && actionNotice ? <div className="sidebar-action-notice" role="status"><span>{actionNotice}</span><button type="button" onClick={() => setActionNotice(undefined)} title={t('action.close')}><X size={12} aria-hidden="true" /></button></div> : null}
       <div className="sidebar-footer">{footer}</div>
       {dialog ? createPortal(
         <SidebarActionDialog
@@ -735,7 +735,7 @@ function SidebarActionDialog({
       <form className="sidebar-dialog" role="dialog" aria-modal="true" aria-labelledby="sidebar-dialog-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={onSubmit}>
         <header>
           <div><strong id="sidebar-dialog-title">{title}</strong><span>{description}</span></div>
-          <button type="button" disabled={pending} onClick={onCancel} title={t('project.dialogClose')}><X size={14} aria-hidden="true" /></button>
+          <button type="button" disabled={pending} onClick={onCancel} title={t('action.close')}><X size={14} aria-hidden="true" /></button>
         </header>
         {rename ? (
           <label className="sidebar-dialog-field">

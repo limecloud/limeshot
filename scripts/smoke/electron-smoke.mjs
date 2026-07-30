@@ -50,6 +50,9 @@ let application;
 
 try {
   await mkdir(workspace, { recursive: true });
+  await mkdir(join(workspace, 'src'), { recursive: true });
+  await writeFile(join(workspace, 'AGENTS.md'), '# Gate B Workspace\n\nReal Files panel markdown preview.\n', 'utf8');
+  await writeFile(join(workspace, 'src', 'fixture.txt'), 'gate-b-files-ready\n', 'utf8');
   await mkdir(openedProjectNestedPath, { recursive: true });
   await writeMcpFixture(mcpFixturePath);
   await writeWaveFixture(sourceAssetPath);
@@ -93,6 +96,14 @@ try {
   let page = await application.firstWindow();
   await page.locator('[data-testid="runtime-status"][data-state="ready"]').waitFor({ timeout: 20_000 });
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForFunction(() => {
+    const trigger = document.querySelector('[data-testid="composer-model-trigger"]');
+    return Boolean(trigger?.getAttribute('data-model') && trigger?.getAttribute('data-effort'));
+  });
+  const initialDraftSettings = await page.getByTestId('composer-model-trigger').evaluate((trigger) => ({
+    model: trigger.getAttribute('data-model') ?? '',
+    effort: trigger.getAttribute('data-effort') ?? '',
+  }));
   await page.locator('.home-profile-context').click();
   const foundationEvidence = await page.evaluate(() => ({
     hasPreload: Boolean(window.limeShot?.foundation?.read),
@@ -126,23 +137,48 @@ try {
   const activityTools = (await page.locator('.agent-item[data-item-type="dynamicToolCall"]').allTextContents()).join('\n');
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: /^Gate B complete$/ }).waitFor({ timeout: 60_000 });
   await page.locator('.agent-turn[data-status="completed"]').waitFor({ timeout: 60_000 });
-  await page.getByTitle('打开对话运行状态').click();
-  const activityInspector = page.locator('.conversation-activity-inspector');
-  await activityInspector.waitFor({ timeout: 20_000 });
-  const activityInspectorEvidence = await page.evaluate(() => {
-    const inspector = document.querySelector('.conversation-activity-inspector');
-    const conversation = document.querySelector('.conversation-workspace');
-    const inspectorBounds = inspector?.getBoundingClientRect();
-    const conversationBounds = conversation?.getBoundingClientRect();
+  const conversationComposerEvidence = await page.evaluate(() => {
+    const field = document.querySelector('.composer-field')?.getBoundingClientRect();
+    const model = document.querySelector('.composer-field [data-testid="composer-model-trigger"]')?.getBoundingClientRect();
+    const send = document.querySelector('.composer-field .send-button')?.getBoundingClientRect();
+    const bottomInset = field ? window.innerHeight - field.bottom : -1;
     return {
-      inspectorVisible: Boolean(inspectorBounds && inspectorBounds.width > 0 && inspectorBounds.height > 0),
-      inspectorOnRight: Boolean(inspectorBounds && conversationBounds && inspectorBounds.left >= conversationBounds.right - 1),
-      statusOwnedByInspector: Boolean(inspector?.querySelector('.conversation-status-surface')),
+      referenceSize: Boolean(field && field.width >= 574 && field.width <= 578 && field.height >= 78 && field.height <= 82),
+      fullyContained: Boolean(field && field.top >= 0 && bottomInset >= 12 && bottomInset <= 18),
+      settingsBeforeSend: Boolean(model && send && model.right <= send.left),
+      metrics: field && model && send ? {
+        fieldWidth: field.width,
+        fieldHeight: field.height,
+        fieldTop: field.top,
+        bottomInset,
+        modelRight: model.right,
+        sendLeft: send.left,
+      } : null,
+    };
+  });
+  await page.getByTitle('环境信息').click();
+  const environmentMenu = page.getByTestId('environment-menu');
+  await environmentMenu.waitFor({ timeout: 20_000 });
+  const environmentMenuEvidence = await page.evaluate(() => {
+    const surface = document.querySelector('[data-testid="environment-menu"]');
+    const conversation = document.querySelector('.conversation-workspace');
+    const surfaceBounds = surface?.getBoundingClientRect();
+    const conversationBounds = conversation?.getBoundingClientRect();
+    const text = surface?.textContent ?? '';
+    return {
+      surfaceVisible: Boolean(surfaceBounds && surfaceBounds.width > 0 && surfaceBounds.height > 0),
+      surfaceInsideConversation: Boolean(surfaceBounds && conversationBounds && surfaceBounds.left >= conversationBounds.left && surfaceBounds.right <= conversationBounds.right),
+      compactStatusReplaced: !surface?.querySelector('.conversation-status-surface'),
+      sectionOrder: text.indexOf('变更') < text.indexOf('侧边任务')
+        && text.indexOf('侧边任务') < text.indexOf('浏览器')
+        && text.indexOf('浏览器') < text.indexOf('来源'),
+      projectContextVisible: text.includes('本地') && text.includes('workspace'),
       statusAbsentFromTimelineTop: !document.querySelector('.conversation-workspace > .conversation-status-surface'),
     };
   });
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-conversation-activity.png') });
-  await page.getByTestId('workspace-toolbar').getByTitle('关闭对话运行状态').click();
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-environment-menu.png') });
+  await page.keyboard.press('Escape');
+  await environmentMenu.waitFor({ state: 'detached', timeout: 20_000 });
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-conversation.png') });
 
   await composer.fill('Exercise every required conversation projection and interaction.');
@@ -226,7 +262,169 @@ try {
   }
   const diffItem = page.locator('.agent-item[data-item-type="fileChange"][data-status="completed"]', { hasText: 'gate-b-projection.txt' });
   await diffItem.waitFor({ timeout: 60_000 });
-  await page.locator('.agent-turn-panel[data-panel="diff"]', { hasText: 'gate-b-projection.txt' }).waitFor({ timeout: 60_000 });
+  await diffItem.click();
+  const changesReview = page.locator('[data-testid="conversation-review"]');
+  await changesReview.waitFor({ timeout: 20_000 });
+  const changesReviewEvidence = await page.evaluate(() => {
+    const review = document.querySelector('[data-testid="conversation-review"]');
+    const conversation = document.querySelector('.conversation-workspace');
+    const viewer = review?.querySelector('[data-testid="conversation-diff-viewer"]');
+    const files = review?.querySelector('[data-testid="conversation-review-files"]');
+    const selectedFile = review?.querySelector('[data-change-path][data-selected="true"]');
+    const reviewBounds = review?.getBoundingClientRect();
+    const conversationBounds = conversation?.getBoundingClientRect();
+    const viewerBounds = viewer?.getBoundingClientRect();
+    const filesBounds = files?.getBoundingClientRect();
+    return {
+      openedFromTimeline: review?.getAttribute('data-selected-change-path')?.endsWith('gate-b-projection.txt') === true,
+      reviewTabVisible: document.querySelector('[data-testid="workspace-right-tabs"] [role="tab"][aria-selected="true"]')?.textContent?.includes('审阅') === true,
+      selectedFileVisible: selectedFile?.getAttribute('data-change-path')?.endsWith('gate-b-projection.txt') === true,
+      diffOwnedByReview: viewer?.textContent?.includes('Gate B diff projection') === true,
+      diffRowsVisible: Boolean(viewer?.querySelector('[data-diff-line]')),
+      fileTreeVisible: Boolean(files?.querySelector('.conversation-change-tree')),
+      inlineFileDiffAbsent: !document.querySelector('.agent-item[data-item-type="fileChange"] pre'),
+      inlineTurnDiffAbsent: !document.querySelector('.agent-turn-panel[data-panel="diff"]'),
+      conversationOnLeft: Boolean(reviewBounds && conversationBounds && reviewBounds.left >= conversationBounds.right - 1),
+      diffWiderThanFileTree: Boolean(viewerBounds && filesBounds && viewerBounds.width > filesBounds.width),
+      fileTreeOnRight: Boolean(reviewBounds && filesBounds && filesBounds.right >= reviewBounds.right - 1),
+    };
+  });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-review-workspace.png') });
+  const rightTabs = page.getByTestId('workspace-right-tabs');
+  await rightTabs.getByRole('button', { name: '打开新标签页' }).click();
+  const rightMenuLabels = (await page.getByTestId('workspace-right-menu').getByRole('menuitem').allTextContents())
+    .map((label) => label.split(/Ctrl|Cmd/)[0].trim());
+  await page.getByTestId('workspace-right-menu').getByRole('menuitem', { name: /终端/ }).click();
+  const rightTerminal = page.getByTestId('workspace-right-terminal');
+  await rightTerminal.locator('.xterm-helper-textarea').waitFor({ state: 'attached', timeout: 20_000 });
+  await rightTabs.getByRole('tab').filter({ hasText: '@' }).waitFor({ timeout: 20_000 });
+  await rightTerminal.click({ position: { x: 48, y: 48 } });
+  await page.keyboard.insertText("printf 'gate-b-terminal-%s\\n' ready");
+  await page.keyboard.press('Enter');
+  await rightTerminal.locator('.xterm-rows', { hasText: 'gate-b-terminal-ready' }).waitFor({ timeout: 20_000 });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-terminal-workspace.png') });
+  await rightTabs.getByRole('button', { name: '打开新标签页' }).click();
+  await page.getByTestId('workspace-right-menu').getByRole('menuitem', { name: /浏览器/ }).click();
+  const rightBrowser = page.getByTestId('workspace-right-browser');
+  const browserFixtureUrl = `${fixture.baseUrl}/browser-fixture`;
+  const rightBrowserAddress = rightBrowser.getByRole('textbox', { name: '浏览器地址' });
+  await rightBrowserAddress.fill(browserFixtureUrl);
+  await rightBrowserAddress.press('Enter');
+  await rightTabs.getByRole('tab', { name: 'Gate B Browser Fixture' }).waitFor({ timeout: 20_000 });
+  const browserWebContentsEvidence = await application.evaluate(async ({ webContents }, expectedUrl) => {
+    const target = webContents.getAllWebContents().find((contents) => contents.getURL() === expectedUrl);
+    return {
+      viewFound: Boolean(target),
+      bodyReady: target ? await target.executeJavaScript("document.querySelector('#browser-ready')?.textContent === 'gate-b-browser-ready'") : false,
+      titleReady: target?.getTitle() === 'Gate B Browser Fixture',
+    };
+  }, browserFixtureUrl);
+  if (screenshotDir) {
+    const browserCapture = await application.evaluate(async ({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (!window) throw new Error('Gate B BrowserWindow is unavailable');
+      return (await window.capturePage()).toPNG().toString('base64');
+    });
+    await writeFile(join(screenshotDir, '02-browser-workspace.png'), Buffer.from(browserCapture, 'base64'));
+    const browserContentCapture = await application.evaluate(async ({ webContents }, expectedUrl) => {
+      const target = webContents.getAllWebContents().find((contents) => contents.getURL() === expectedUrl);
+      if (!target) throw new Error('Gate B Browser webContents is unavailable');
+      return (await target.capturePage()).toPNG().toString('base64');
+    }, browserFixtureUrl);
+    await writeFile(join(screenshotDir, '02-browser-content.png'), Buffer.from(browserContentCapture, 'base64'));
+  }
+  await rightTabs.getByRole('button', { name: '打开新标签页' }).click();
+  await page.getByTestId('workspace-right-menu').getByRole('menuitem', { name: /文件/ }).click();
+  const rightFiles = page.getByTestId('workspace-right-files');
+  await rightFiles.locator('.workspace-markdown-preview', { hasText: 'Gate B Workspace' }).waitFor({ timeout: 20_000 });
+  await rightFiles.getByRole('treeitem', { name: /src/ }).click();
+  await rightFiles.getByRole('treeitem', { name: /fixture\.txt/ }).click();
+  await rightFiles.locator('.workspace-source-preview', { hasText: 'gate-b-files-ready' }).waitFor({ timeout: 20_000 });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-files-workspace.png') });
+  await rightTabs.getByRole('button', { name: '打开新标签页' }).click();
+  await page.getByTestId('workspace-right-menu').getByRole('menuitem', { name: /侧边任务/ }).click();
+  await page.getByTestId('workspace-right-tasks').waitFor({ timeout: 20_000 });
+  const rightTabCount = await rightTabs.getByRole('tab').count();
+  const expandedPanelEvidence = await page.evaluate(() => {
+    const workspace = document.querySelector('.workspace');
+    const panel = document.querySelector('.workspace-right-panel');
+    const primary = document.querySelector('.workspace-primary');
+    const workspaceBounds = workspace?.getBoundingClientRect();
+    const panelBounds = panel?.getBoundingClientRect();
+    return {
+      conversationHidden: primary ? getComputedStyle(primary).display === 'none' : false,
+      panelFillsWorkspace: Boolean(workspaceBounds && panelBounds && panelBounds.left <= workspaceBounds.left + 1 && panelBounds.right >= workspaceBounds.right - 1),
+    };
+  });
+  await rightTabs.getByRole('button', { name: '恢复分栏' }).click();
+  await rightTabs.getByRole('tab').filter({ hasText: '@' }).click();
+  const terminalSessionPreserved = await rightTerminal.locator('.xterm-rows').textContent().then((text) => text?.includes('gate-b-terminal-ready') === true);
+  await rightTabs.getByRole('tab', { name: '审阅' }).click();
+  await changesReview.waitFor({ timeout: 20_000 });
+  const workspaceChromeEvidence = {
+    rightMenuOrder: JSON.stringify(rightMenuLabels) === JSON.stringify(['审阅', '终端', '浏览器', '文件', '侧边任务']),
+    fiveRightTabs: rightTabCount === 5,
+    realTerminal: terminalSessionPreserved,
+    realBrowser: Object.values(browserWebContentsEvidence).every(Boolean),
+    realFiles: await rightFiles.locator('.workspace-files-tree').count() === 1,
+    expandedConversationHidden: expandedPanelEvidence.conversationHidden,
+    expandedPanelFillsWorkspace: expandedPanelEvidence.panelFillsWorkspace,
+    sideTasksProjection: false,
+    bottomPanelCreatedTerminal: false,
+    bottomBrowserProjection: false,
+    bottomPanelBelowConversation: false,
+  };
+  await rightTabs.getByRole('button', { name: '关闭面板' }).click();
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await diffItem.click();
+  const compactChangesReview = page.locator('[data-testid="conversation-review"]');
+  await compactChangesReview.waitFor({ timeout: 20_000 });
+  const changesReviewCompactEvidence = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const review = document.querySelector('[data-testid="conversation-review"]');
+    const primary = document.querySelector('.workspace-primary');
+    const files = review?.querySelector('[data-testid="conversation-review-files"]');
+    const viewer = review?.querySelector('[data-testid="conversation-diff-viewer"]');
+    const reviewBounds = review?.getBoundingClientRect();
+    const filesBounds = files?.getBoundingClientRect();
+    const viewerBounds = viewer?.getBoundingClientRect();
+    return {
+      noHorizontalOverflow: document.documentElement.scrollWidth <= viewportWidth + 1,
+      reviewContained: Boolean(reviewBounds && reviewBounds.left >= -1 && reviewBounds.right <= viewportWidth + 1),
+      conversationReplaced: primary ? getComputedStyle(primary).display === 'none' : false,
+      fileTreeOnRight: Boolean(reviewBounds && filesBounds && filesBounds.right >= reviewBounds.right - 1),
+      diffWiderThanFileTree: Boolean(viewerBounds && filesBounds && viewerBounds.width > filesBounds.width),
+      selectedFilePreserved: review?.getAttribute('data-selected-change-path')?.endsWith('gate-b-projection.txt') === true,
+    };
+  });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-review-workspace-1024.png') });
+  await page.getByTestId('workspace-right-tabs').getByRole('button', { name: '关闭面板' }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: '切换底部面板' }).click();
+  const bottomTabs = page.getByTestId('workspace-bottom-tabs');
+  await bottomTabs.locator('[role="tab"][data-tab-kind="terminal"][aria-selected="true"]').waitFor({ timeout: 20_000 });
+  const bottomTerminal = page.getByTestId('workspace-bottom-terminal');
+  await bottomTerminal.locator('.xterm-helper-textarea').waitFor({ state: 'attached', timeout: 20_000 });
+  await bottomTerminal.click({ position: { x: 48, y: 48 } });
+  await page.keyboard.insertText("printf 'gate-b-bottom-terminal-%s\\n' ready");
+  await page.keyboard.press('Enter');
+  await bottomTerminal.locator('.xterm-rows', { hasText: 'gate-b-bottom-terminal-ready' }).waitFor({ timeout: 20_000 });
+  await bottomTabs.getByRole('button', { name: '打开新标签页' }).click();
+  await page.getByTestId('workspace-bottom-menu').getByRole('menuitem', { name: /浏览器/ }).click();
+  const bottomBrowser = page.getByTestId('workspace-bottom-browser');
+  await bottomBrowser.getByRole('textbox', { name: '浏览器地址' }).fill(browserFixtureUrl);
+  await bottomBrowser.getByRole('textbox', { name: '浏览器地址' }).press('Enter');
+  await bottomTabs.getByRole('tab', { name: 'Gate B Browser Fixture' }).waitFor({ timeout: 20_000 });
+  const bottomPanelGeometry = await page.evaluate(() => {
+    const conversation = document.querySelector('.conversation-workspace')?.getBoundingClientRect();
+    const panel = document.querySelector('.workspace-bottom-panel')?.getBoundingClientRect();
+    return Boolean(conversation && panel && panel.top >= conversation.bottom - 1 && panel.height >= 200);
+  });
+  workspaceChromeEvidence.bottomPanelCreatedTerminal = await bottomTerminal.locator('.xterm-rows').textContent().then((text) => text?.includes('gate-b-bottom-terminal-ready') === true);
+  workspaceChromeEvidence.bottomBrowserProjection = await bottomBrowser.getByRole('textbox', { name: '浏览器地址' }).inputValue() === browserFixtureUrl;
+  workspaceChromeEvidence.bottomPanelBelowConversation = bottomPanelGeometry;
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-bottom-workspace.png') });
+  await bottomTabs.getByRole('button', { name: '关闭面板' }).click();
 
   const mcpItem = page.locator('.agent-item[data-item-type="mcpToolCall"]', { hasText: 'gate_b/echo_tool' });
   await mcpItem.waitFor({ timeout: 60_000 });
@@ -387,15 +585,14 @@ try {
     };
   }, { absoluteWorkspace: workspace, mcpSecret: 'gate-b-mcp-private-value', secret: 'gate-b-secret-value' });
   const projectionActivityEvidence = await page.evaluate(() => {
-    const summary = (type) => document.querySelector(`.agent-item[data-item-type="${type}"] > summary .agent-item-summary`)?.textContent ?? '';
+    const summary = (type) => document.querySelector(`.agent-item[data-item-type="${type}"] .agent-item-summary`)?.textContent ?? '';
     const turnDiff = document.querySelector('.agent-turn-panel[data-panel="diff"]');
-    const turnDiffStyle = turnDiff ? getComputedStyle(turnDiff) : null;
     return {
       searchSummaryVisible: summary('webSearch').includes('LimeShot projection contract'),
       shellSummaryVisible: summary('commandExecution').includes('gate-b-shell-output'),
       fileSummaryVisible: summary('fileChange').includes('gate-b-projection.txt'),
       completedStatusSuppressed: !document.querySelector('.agent-activity-item[data-status="completed"] > summary .agent-item-label em'),
-      turnDiffCardless: Boolean(turnDiffStyle && turnDiffStyle.borderTopStyle === 'none' && turnDiffStyle.backgroundColor === 'rgba(0, 0, 0, 0)'),
+      turnDiffOwnedByReview: !turnDiff,
       dynamicFailureVisible: document.querySelector('.agent-item[data-item-type="dynamicToolCall"][data-status="failed"] > summary')?.textContent?.includes('工具执行失败') === true,
     };
   });
@@ -413,6 +610,12 @@ try {
     hiddenBoundariesAbsent: !['gate-b-wait', 'gate-b-sleep', 'gate-b-review-enter', 'gate-b-review-exit', 'gate-b-unknown']
       .some((id) => document.querySelector(`[data-item-id="${id}"]`)),
   }), manualCompactionRunningVisible);
+  await page.getByRole('button', { name: '切换侧边面板' }).click();
+  await page.getByTestId('workspace-right-tabs').getByRole('tab', { name: '侧边任务' }).click();
+  await page.locator('[data-testid="workspace-right-tasks"] [data-item-id="gate-b-collab"]', { hasText: 'Projection verified' }).waitFor({ timeout: 20_000 });
+  workspaceChromeEvidence.sideTasksProjection = true;
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-side-tasks-workspace.png') });
+  await page.getByTestId('workspace-right-tabs').getByRole('button', { name: '关闭面板' }).click();
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-projections.png') });
 
   await composer.fill('Run the interrupt projection.');
@@ -424,6 +627,26 @@ try {
 
   await page.setViewportSize({ width: 420, height: 900 });
   await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="true"]').waitFor({ timeout: 20_000 });
+  await page.locator('.agent-item[data-item-type="fileChange"]', { hasText: 'gate-b-projection.txt' }).click();
+  const narrowChangesReview = page.locator('[data-testid="conversation-review"]');
+  await narrowChangesReview.waitFor({ timeout: 20_000 });
+  const changesReviewNarrowEvidence = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const review = document.querySelector('[data-testid="conversation-review"]');
+    const viewer = review?.querySelector('[data-testid="conversation-diff-viewer"]');
+    const reviewBounds = review?.getBoundingClientRect();
+    const viewerBounds = viewer?.getBoundingClientRect();
+    return {
+      noHorizontalOverflow: document.documentElement.scrollWidth <= viewportWidth + 1,
+      reviewContained: Boolean(reviewBounds && reviewBounds.left >= -1 && reviewBounds.right <= viewportWidth + 1),
+      viewerContained: Boolean(viewerBounds && viewerBounds.left >= -1 && viewerBounds.right <= viewportWidth + 1),
+      mobileFileSelectorVisible: document.querySelector('.conversation-review-mobile-file')?.getBoundingClientRect().height > 0,
+      desktopFileTreeHidden: getComputedStyle(document.querySelector('[data-testid="conversation-review-files"]')).display === 'none',
+      selectedFilePreserved: review?.getAttribute('data-selected-change-path')?.endsWith('gate-b-projection.txt') === true,
+    };
+  });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-review-workspace-420.png'), fullPage: true });
+  await page.getByTestId('workspace-right-tabs').getByRole('button', { name: '关闭面板' }).click();
   const narrowViewportEvidence = await page.evaluate(() => {
     const viewportWidth = document.documentElement.clientWidth;
     const visible = (element) => {
@@ -564,6 +787,10 @@ try {
   await page.locator('.home-profile-context').click();
   const newConversationHome = await page.evaluate((expectedProjectName) => {
     const composerBounds = document.querySelector('.home-composer')?.getBoundingClientRect();
+    const composerFieldBounds = document.querySelector('.home-composer-field')?.getBoundingClientRect();
+    const modelBounds = document.querySelector('.home-composer-field [data-testid="composer-model-trigger"]')?.getBoundingClientRect();
+    const sendBounds = document.querySelector('.home-composer-field .home-send-button')?.getBoundingClientRect();
+    const composerBottomInset = composerBounds ? window.innerHeight - composerBounds.bottom : -1;
     const sidebarBounds = document.querySelector('.sidebar')?.getBoundingClientRect();
     const profileMenu = document.querySelector('[data-testid="profiles-menu"]');
     const suggestions = document.querySelectorAll('.home-suggestion');
@@ -575,7 +802,12 @@ try {
       projectTitle: document.querySelector('.home-heading h1')?.textContent?.includes(expectedProjectName),
       suggestionCount: suggestions.length === 4,
       composerReferenceWidth: Boolean(composerBounds && composerBounds.width >= 560 && composerBounds.width <= 578),
-      composerDocked: Boolean(composerBounds && window.innerHeight - composerBounds.bottom <= 16),
+      composerDocked: composerBottomInset >= 12 && composerBottomInset <= 18,
+      composerContained: Boolean(composerBounds && composerBounds.top >= 0 && composerBounds.bottom <= window.innerHeight),
+      composerReplica: Boolean(composerFieldBounds
+        && composerFieldBounds.width >= 574 && composerFieldBounds.width <= 578
+        && composerFieldBounds.height >= 78 && composerFieldBounds.height <= 82
+        && modelBounds && sendBounds && modelBounds.right <= sendBounds.left),
       sidebarReferenceWidth: Boolean(sidebarBounds && sidebarBounds.width === 275),
       toolbarTitleAbsent: !document.querySelector('.workspace-toolbar-title'),
       profileMenuIntegrated: profileMenu?.querySelectorAll('[data-testid^="profile-"]').length === 5
@@ -585,6 +817,15 @@ try {
       noNewProjectAction: !Array.from(document.querySelectorAll('.sidebar-actions button')).some((button) => button.textContent?.includes('新建项目')),
       projectConversationNested: Array.from(document.querySelectorAll('.project-conversation-nav-item'))
         .some((item) => item.textContent?.includes('Read this project')),
+      metrics: composerBounds && composerFieldBounds && modelBounds && sendBounds && sidebarBounds ? {
+        composerWidth: composerBounds.width,
+        composerBottomInset,
+        composerFieldWidth: composerFieldBounds.width,
+        composerFieldHeight: composerFieldBounds.height,
+        modelRight: modelBounds.right,
+        sendLeft: sendBounds.left,
+        sidebarWidth: sidebarBounds.width,
+      } : null,
     };
   }, projectName);
   newConversationHome.composerFocused = composerFocused;
@@ -641,11 +882,14 @@ try {
   await projectMenuButton.click();
   await page.getByRole('menuitem', { name: '编辑项目' }).click();
   await page.getByTestId('project-overview').waitFor({ timeout: 20_000 });
-  const projectEditOpened = await page.locator('.project-inspector').isVisible();
+  const projectEditOpened = await page.getByTestId('production-workspace').isVisible()
+    && await page.locator('.project-inspector').count() === 0;
   await newConversationButton.click();
   await page.getByTestId('home-workspace').waitFor({ timeout: 20_000 });
   await page.getByTestId('home-project-context').click();
-  await page.getByTestId('composer-add-menu').getByRole('menuitem', { name: /无项目/ }).click();
+  const composerProjectMenu = page.getByTestId('composer-add-menu');
+  await composerProjectMenu.getByRole('menuitem', { name: /项目/ }).click();
+  await composerProjectMenu.getByRole('menuitem', { name: /无项目/ }).click();
   const sidebarMenuEvidence = {
     recentOptionsVisible: ['排序方式', '最近更新', '手动排序']
       .every((label) => recentMenuText.includes(label)),
@@ -733,55 +977,58 @@ try {
   });
   await page.getByTestId(`project-conversation-${projectThreadId}`).click();
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
-  await page.locator('.agent-item[data-kind="assistant"]', { hasText: /^Gate B complete$/ }).waitFor({ timeout: 60_000 });
+  const restoredAssistant = page.locator('.agent-item[data-kind="assistant"]', { hasText: /^Gate B complete$/ });
+  await restoredAssistant.waitFor({ timeout: 60_000 });
+  const assistantVisibleBeforeExtension = await restoredAssistant.isVisible();
 
-  await page.getByTitle('打开项目详情').click();
+  await projectMenuButton.click();
+  await page.getByRole('menuitem', { name: '编辑项目' }).click();
+  await page.getByTestId('production-workspace').waitFor({ timeout: 20_000 });
   await page.getByTestId('project-overview').waitFor({ timeout: 20_000 });
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-details.png') });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-production-workspace.png') });
   const inspectProjectLayout = () => page.evaluate(() => {
     const viewportWidth = document.documentElement.clientWidth;
-    const inspector = document.querySelector('.project-inspector');
-    const conversation = document.querySelector('.conversation-workspace');
-    const inspectorBounds = inspector?.getBoundingClientRect();
-    const conversationBounds = conversation?.getBoundingClientRect();
+    const workspace = document.querySelector('[data-testid="production-workspace"]');
+    const content = document.querySelector('.production-workspace-body');
+    const workspaceBounds = workspace?.getBoundingClientRect();
     return {
       noHorizontalOverflow: document.documentElement.scrollWidth <= viewportWidth + 1,
-      inspectorContained: Boolean(inspectorBounds && inspectorBounds.left >= -1 && inspectorBounds.right <= viewportWidth + 1),
-      inspectorContentContained: Boolean(inspector && inspector.scrollWidth <= inspector.clientWidth + 1),
-      inspectorOverlay: inspector ? getComputedStyle(inspector).position === 'absolute' : false,
-      conversationWidth: conversationBounds?.width ?? 0,
+      workspaceContained: Boolean(workspaceBounds && workspaceBounds.left >= -1 && workspaceBounds.right <= viewportWidth + 1),
+      workspaceContentContained: Boolean(content && content.scrollWidth <= content.clientWidth + 1),
+      coreBusinessInspectorAbsent: document.querySelector('.project-inspector') === null,
+      workspaceWidth: workspaceBounds?.width ?? 0,
       sidebarCollapsed: document.querySelector('[data-testid="app-shell"]')?.getAttribute('data-sidebar-collapsed') === 'true',
     };
   });
   await page.setViewportSize({ width: 1024, height: 768 });
   const projectDesktopLayout = await inspectProjectLayout();
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-details-1024.png') });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-production-workspace-1024.png') });
   await page.setViewportSize({ width: 768, height: 900 });
   const projectCompactLayout = await inspectProjectLayout();
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-details-768.png') });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-production-workspace-768.png') });
   await page.setViewportSize({ width: 420, height: 900 });
   await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="true"]').waitFor({ timeout: 20_000 });
   const projectNarrowLayout = await inspectProjectLayout();
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-project-details-420.png') });
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-production-workspace-420.png') });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByTitle('展开侧边栏').click();
   await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="false"]').waitFor({ timeout: 20_000 });
   const projectResponsiveEvidence = {
     desktop: projectDesktopLayout.noHorizontalOverflow
-      && projectDesktopLayout.inspectorContained
-      && projectDesktopLayout.inspectorContentContained
-      && !projectDesktopLayout.inspectorOverlay
-      && projectDesktopLayout.conversationWidth >= 400,
+      && projectDesktopLayout.workspaceContained
+      && projectDesktopLayout.workspaceContentContained
+      && projectDesktopLayout.coreBusinessInspectorAbsent
+      && projectDesktopLayout.workspaceWidth >= 700,
     compact: projectCompactLayout.noHorizontalOverflow
-      && projectCompactLayout.inspectorContained
-      && projectCompactLayout.inspectorContentContained
-      && projectCompactLayout.inspectorOverlay
-      && projectCompactLayout.conversationWidth >= 490,
+      && projectCompactLayout.workspaceContained
+      && projectCompactLayout.workspaceContentContained
+      && projectCompactLayout.coreBusinessInspectorAbsent
+      && projectCompactLayout.workspaceWidth >= 480,
     narrow: projectNarrowLayout.noHorizontalOverflow
-      && projectNarrowLayout.inspectorContained
-      && projectNarrowLayout.inspectorContentContained
-      && projectNarrowLayout.inspectorOverlay
-      && projectNarrowLayout.conversationWidth >= 400
+      && projectNarrowLayout.workspaceContained
+      && projectNarrowLayout.workspaceContentContained
+      && projectNarrowLayout.coreBusinessInspectorAbsent
+      && projectNarrowLayout.workspaceWidth >= 400
       && projectNarrowLayout.sidebarCollapsed,
   };
   const approveButton = page.getByRole('button', { name: '批准计划' });
@@ -851,8 +1098,10 @@ try {
   await newConversationButton.click();
   await page.getByTestId('home-workspace').waitFor({ timeout: 20_000 });
   await page.getByRole('button', { name: '添加' }).click();
-  await page.getByTestId('composer-add-menu').waitFor({ timeout: 20_000 });
-  await page.getByRole('menuitem', { name: /选择或新建文件夹/ }).click();
+  const localProjectMenu = page.getByTestId('composer-add-menu');
+  await localProjectMenu.waitFor({ timeout: 20_000 });
+  await localProjectMenu.getByRole('menuitem', { name: /项目/ }).click();
+  await localProjectMenu.getByRole('menuitem', { name: /选择或新建文件夹/ }).click();
   await page.locator('.project-nav-item', { hasText: openedProjectName }).waitFor({ timeout: 20_000 });
   await page.getByTestId('home-project-context').filter({ hasText: openedProjectName }).waitFor({ timeout: 20_000 });
   if (await page.getByTestId('agent-panel').count() !== 0) throw new Error('选择本地文件夹时不应直接创建 Codex Thread');
@@ -891,6 +1140,7 @@ try {
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Opened project complete' }).waitFor({ timeout: 60_000 });
   await page.locator('.agent-turn[data-status="completed"]', { hasText: 'Opened project complete' }).waitFor({ timeout: 60_000 });
+  const modelSettingsEvidence = await exerciseModelSettings(page, screenshotDir);
   const openedConversationId = await page.getByTestId('agent-panel').getAttribute('data-conversation-id');
   const openedThreadId = await page.getByTestId('agent-panel').getAttribute('data-thread-id');
   if (!openedConversationId || !openedThreadId) throw new Error('Local project conversation identity is missing from the GUI projection');
@@ -939,7 +1189,10 @@ try {
   await page.locator('.agent-item[data-item-type="mcpToolCall"]', { hasText: 'gate_b/echo_tool' }).waitFor({ timeout: 60_000 });
   await page.locator('.agent-item[data-item-type="imageGeneration"]', { hasText: 'LimeShot projection image' }).waitFor({ timeout: 60_000 });
   await page.locator('.agent-turn[data-status="interrupted"]').waitFor({ timeout: 60_000 });
-  await page.getByTitle('打开项目详情').click();
+  const restoredProjectMenuButton = page.getByRole('button', { name: `${projectName} 项目菜单` });
+  await restoredProjectMenuButton.click();
+  await page.getByRole('menuitem', { name: '编辑项目' }).click();
+  await page.getByTestId('production-workspace').waitFor({ timeout: 20_000 });
   await page.locator('.plan-panel > header > span[data-state="approved"]').waitFor({ timeout: 20_000 });
   await page.locator('[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-task-state="succeeded"]').first().waitFor({ timeout: 20_000 });
   await page.locator('[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-task-state="canceled"]').waitFor({ timeout: 20_000 });
@@ -976,15 +1229,16 @@ try {
   const thirdRequest = JSON.stringify(requests[2] ?? {});
   const shellOutputRequest = JSON.stringify(requests[4] ?? {});
   const patchOutputRequest = JSON.stringify(requests[5] ?? {});
-  const mcpToolOutput = requests[7]?.input?.find((item) => item.type === 'function_call_output'
-    && item.call_id === 'gate-b-mcp-1');
+  const mcpToolOutput = requests[7]?.input?.find((item) => (
+    item.type === 'function_call_output' || item.type === 'custom_tool_call_output'
+  ) && item.call_id === 'gate-b-mcp-1');
+  const mcpToolOutputRequest = JSON.stringify(mcpToolOutput ?? {});
   const userInputOutputRequest = JSON.stringify(requests[8] ?? {});
   const standaloneRequest = JSON.stringify(requests[11] ?? {});
   const openedProjectRequest = JSON.stringify(requests[12] ?? {});
   const evidence = await page.evaluate(() => ({
     source: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('data-runtime-source'),
     runtimeTitle: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('title') ?? '',
-    assistantVisible: Array.from(document.querySelectorAll('.agent-item[data-kind="assistant"]')).some((item) => item.textContent?.trim() === 'Gate B complete'),
     planState: document.querySelector('.plan-panel > header > span')?.getAttribute('data-state') ?? '',
   }));
   const historyRestored = semanticEvidence.history.turns.some((turn) => turn.status === 'completed'
@@ -1002,18 +1256,22 @@ try {
   const planToolOutputRouted = thirdRequest.includes('function_call_output')
     && thirdRequest.includes('gate-b-tool-2')
     && thirdRequest.includes('Gate B production plan');
-  const shellOutputRouted = shellOutputRequest.includes('function_call_output')
+  const responsesLiteCodeMode = Boolean(codeModeExecTool(requests[3] ?? {}));
+  const shellOutputRouted = (shellOutputRequest.includes('function_call_output') || shellOutputRequest.includes('custom_tool_call_output'))
     && shellOutputRequest.includes('gate-b-shell-1')
     && shellOutputRequest.includes('gate-b-shell-output');
   const patchOutputRouted = patchOutputRequest.includes('gate-b-patch-1')
     && patchOutputRequest.includes('Gate B diff projection');
-  const mcpOutputRouted = typeof mcpToolOutput?.output === 'string'
-    && mcpToolOutput.output.includes('"verified":true');
-  const userInputOutputRouted = userInputOutputRequest.includes('function_call_output')
+  const mcpOutputRouted = (mcpToolOutput?.type === 'function_call_output' || mcpToolOutput?.type === 'custom_tool_call_output')
+    && mcpToolOutputRequest.includes('verified')
+    && mcpToolOutputRequest.includes('true');
+  const userInputOutputRouted = (userInputOutputRequest.includes('function_call_output') || userInputOutputRequest.includes('custom_tool_call_output'))
     && userInputOutputRequest.includes('gate-b-user-input-1')
     && userInputOutputRequest.includes('confirm_projection');
   const standaloneExcludedBusinessTools = !standaloneRequest.includes('project_read') && !standaloneRequest.includes('plan_create');
   const openedProjectAdvertisedBusinessTools = openedProjectRequest.includes('project_read') && openedProjectRequest.includes('plan_create');
+  const draftModelApplied = requests[0]?.model === initialDraftSettings.model
+    && requests[0]?.reasoning?.effort === initialDraftSettings.effort;
   const approvedPlanPersisted = semanticEvidence.plans.plans.some((plan) => plan.state === 'approved' && plan.approvedBy === 'user');
   const mediaTaskPersisted = semanticEvidence.execution.taskRuns.some((task) => task.state === 'succeeded')
     && semanticEvidence.execution.mediaJobs.some((job) => job.state === 'succeeded');
@@ -1082,17 +1340,25 @@ try {
     profileCatalog: foundationEvidence.profileCount === 5,
     runtimePid: evidence.runtimeTitle.includes('PID'),
     toolActivityVisible,
-    assistantVisible: evidence.assistantVisible,
+    assistantVisible: assistantVisibleBeforeExtension,
     providerRequestCount: requests.length === 13,
     dynamicToolAdvertised,
     planToolAdvertised,
+    responsesLiteCodeMode,
     projectToolOutputRouted,
     planToolOutputRouted,
     shellOutputRouted,
     patchOutputRouted,
     mcpOutputRouted,
     userInputOutputRouted,
-    activityInspector: Object.values(activityInspectorEvidence).every(Boolean),
+    draftModelApplied,
+    modelSettings: Object.values(modelSettingsEvidence).every(Boolean),
+    conversationComposer: Object.values(conversationComposerEvidence).every(Boolean),
+    environmentMenu: Object.values(environmentMenuEvidence).every(Boolean),
+    changesReview: Object.values(changesReviewEvidence).every(Boolean),
+    changesReviewCompact: Object.values(changesReviewCompactEvidence).every(Boolean),
+    changesReviewNarrow: Object.values(changesReviewNarrowEvidence).every(Boolean),
+    workspaceChrome: Object.values(workspaceChromeEvidence).every(Boolean),
     projectionBoundary: Object.values(projectionBoundaryEvidence).every(Boolean),
     projectionActivity: Object.values(projectionActivityEvidence).every(Boolean),
     projectionDetail: Object.values(projectionDetailEvidence).every(Boolean),
@@ -1138,19 +1404,31 @@ try {
   if (Object.values(gateEvidence).some((value) => !value)) {
     throw new Error(`Gate B 证据不完整: ${JSON.stringify({
       gateEvidence,
-      mcpOutput: requests[7]?.input,
+      mcpOutput: {
+        type: mcpToolOutput?.type,
+        callId: mcpToolOutput?.call_id,
+        hasVerified: mcpToolOutputRequest.includes('verified'),
+      },
       restoredItemTypes: [...restoredItemTypes],
       narrowViewportEvidence,
       projectionBoundaryEvidence,
       projectionActivityEvidence,
       projectionDetailEvidence,
       projectionBoundaryParityEvidence,
-      activityInspectorEvidence,
+      modelSettingsEvidence,
+      conversationComposerEvidence,
+      initialDraftSettings,
+      environmentMenuEvidence,
+      changesReviewEvidence,
+      changesReviewCompactEvidence,
+      changesReviewNarrowEvidence,
+      workspaceChromeEvidence,
       sidebarParityEvidence,
       sidebarMenuEvidence,
       automaticImportListing,
       conversationImportEvidence,
       importedTurnRejected,
+      newConversationHome,
     })}`);
   }
   process.stdout.write(`${JSON.stringify({
@@ -1167,11 +1445,18 @@ try {
     patchOutputRouted,
     mcpOutputRouted,
     userInputOutputRouted,
+    modelSettingsEvidence,
+    conversationComposerEvidence,
+    initialDraftSettings,
     projectionBoundaryEvidence,
     projectionActivityEvidence,
     projectionDetailEvidence,
     projectionBoundaryParityEvidence,
-    activityInspectorEvidence,
+    environmentMenuEvidence,
+    changesReviewEvidence,
+    changesReviewCompactEvidence,
+    changesReviewNarrowEvidence,
+    workspaceChromeEvidence,
     approvalKind,
     mcpElicitationVisible,
     userInputNarrowEvidence,
@@ -1229,10 +1514,11 @@ try {
     providerRequestCount: fixture.requests().length,
     providerRequests: fixture.requests().map((request) => ({
       model: request.model,
-      toolNames: Array.isArray(request.tools) ? request.tools.map((tool) => tool.namespace ? `${tool.namespace}/${tool.name}` : tool.name ?? tool.type) : [],
-      hasProjectRead: JSON.stringify(request.tools ?? []).includes('project_read'),
-      hasPlanCreate: JSON.stringify(request.tools ?? []).includes('plan_create'),
-      hasToolOutput: JSON.stringify(request.input ?? []).includes('function_call_output'),
+      toolNames: responseToolNames(request),
+      hasProjectRead: JSON.stringify(responseTools(request)).includes('project_read'),
+      hasPlanCreate: JSON.stringify(responseTools(request)).includes('plan_create'),
+      hasToolOutput: JSON.stringify(request.input ?? []).includes('function_call_output')
+        || JSON.stringify(request.input ?? []).includes('custom_tool_call_output'),
     })),
     renderer,
   })}\n`);
@@ -1248,6 +1534,102 @@ async function launchElectron(options) {
   launched.process().stdout?.on('data', (chunk) => process.stderr.write(`[electron] ${String(chunk)}`));
   launched.process().stderr?.on('data', (chunk) => process.stderr.write(`[electron] ${String(chunk)}`));
   return launched;
+}
+
+async function exerciseModelSettings(page, screenshotDirectory) {
+  const modelTrigger = page.getByTestId('composer-model-trigger');
+  await modelTrigger.waitFor({ timeout: 20_000 });
+  await page.waitForFunction(() => {
+    const trigger = document.querySelector('[data-testid="composer-model-trigger"]');
+    return Boolean(trigger?.getAttribute('data-model') && trigger?.getAttribute('data-effort'));
+  });
+  const initialSettings = await modelTrigger.evaluate((trigger) => ({
+    model: trigger.getAttribute('data-model') ?? '',
+    effort: trigger.getAttribute('data-effort') ?? '',
+  }));
+  const initialModelTriggerText = await modelTrigger.innerText();
+  await modelTrigger.click();
+  const modelSettingsMenu = page.getByRole('menu', { name: '模型和推理强度', exact: true });
+  await modelSettingsMenu.waitFor({ timeout: 20_000 });
+  await modelSettingsMenu.getByRole('menuitem').first().click();
+  const modelMenu = page.getByRole('menu', { name: '模型', exact: true });
+  const modelOptionCount = await modelMenu.locator('[role="menuitemradio"]').count();
+  const currentModelOptionCount = await modelMenu.locator('[role="menuitemradio"][aria-checked="true"]').count();
+  const nextModelOption = modelMenu.locator('[role="menuitemradio"][aria-checked="false"]').first();
+  if (await nextModelOption.count() !== 1) throw new Error('Gate B model catalog did not expose a switchable model');
+  const selectedModelLabel = (await nextModelOption.locator('span').first().innerText()).trim();
+  await nextModelOption.click();
+  await modelSettingsMenu.waitFor({ state: 'detached', timeout: 20_000 });
+  await modelTrigger.filter({ hasText: selectedModelLabel }).waitFor({ timeout: 20_000 });
+
+  await modelTrigger.click();
+  await modelSettingsMenu.waitFor({ timeout: 20_000 });
+  await modelSettingsMenu.getByRole('menuitem').nth(1).click();
+  const effortMenu = page.getByRole('menu', { name: '推理强度', exact: true });
+  const effortOptionCount = await effortMenu.locator('[role="menuitemradio"]').count();
+  const nextEffortOption = effortMenu.locator('[role="menuitemradio"][aria-checked="false"]').first();
+  if (await nextEffortOption.count() !== 1) throw new Error('Gate B selected model did not expose a switchable reasoning effort');
+  const selectedEffortLabel = (await nextEffortOption.locator('strong').innerText()).trim();
+  const effortMenuBounds = await effortMenu.boundingBox();
+  const viewport = page.viewportSize();
+  const menusContained = Boolean(effortMenuBounds && viewport
+    && effortMenuBounds.x >= 0
+    && effortMenuBounds.y >= 0
+    && effortMenuBounds.x + effortMenuBounds.width <= viewport.width
+    && effortMenuBounds.y + effortMenuBounds.height <= viewport.height);
+  if (screenshotDirectory) await page.screenshot({ path: join(screenshotDirectory, '02-model-picker.png') });
+  await nextEffortOption.click();
+  await modelSettingsMenu.waitFor({ state: 'detached', timeout: 20_000 });
+  await modelTrigger.filter({ hasText: selectedEffortLabel }).waitFor({ timeout: 20_000 });
+  const updatedModelTriggerText = await modelTrigger.innerText();
+
+  await modelTrigger.click();
+  await modelSettingsMenu.waitFor({ timeout: 20_000 });
+  await modelSettingsMenu.getByRole('menuitem').first().click();
+  const initialModelOption = page.getByRole('menu', { name: '模型', exact: true })
+    .locator(`[role="menuitemradio"][data-model="${initialSettings.model}"]`);
+  if (await initialModelOption.count() !== 1) throw new Error(`Gate B could not restore initial model ${initialSettings.model}`);
+  await initialModelOption.click();
+  await modelSettingsMenu.waitFor({ state: 'detached', timeout: 20_000 });
+  await page.waitForFunction(({ model }) => (
+    document.querySelector('[data-testid="composer-model-trigger"]')?.getAttribute('data-model') === model
+  ), initialSettings);
+
+  const effortAfterModelRestore = await modelTrigger.getAttribute('data-effort');
+  if (effortAfterModelRestore !== initialSettings.effort) {
+    await modelTrigger.click();
+    await modelSettingsMenu.waitFor({ timeout: 20_000 });
+    await modelSettingsMenu.getByRole('menuitem').nth(1).click();
+    const initialEffortOption = page.getByRole('menu', { name: '推理强度', exact: true })
+      .locator(`[role="menuitemradio"][data-effort="${initialSettings.effort}"]`);
+    if (await initialEffortOption.count() !== 1) throw new Error(`Gate B could not restore initial effort ${initialSettings.effort}`);
+    await initialEffortOption.click();
+    await modelSettingsMenu.waitFor({ state: 'detached', timeout: 20_000 });
+  }
+  await page.waitForFunction(({ model, effort }) => {
+    const trigger = document.querySelector('[data-testid="composer-model-trigger"]');
+    return trigger?.getAttribute('data-model') === model && trigger.getAttribute('data-effort') === effort;
+  }, initialSettings);
+
+  return {
+    currentSettingsProjected: currentModelOptionCount === 1 && !initialModelTriggerText.includes('模型不可用'),
+    catalogLoaded: modelOptionCount > 0,
+    modelOptionsVisible: modelOptionCount > 0,
+    modelUpdatedFromNotification: updatedModelTriggerText.includes(selectedModelLabel),
+    effortOptionsVisible: effortOptionCount > 1,
+    menusContained,
+    menuMetrics: effortMenuBounds && viewport ? {
+      x: effortMenuBounds.x,
+      y: effortMenuBounds.y,
+      width: effortMenuBounds.width,
+      height: effortMenuBounds.height,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+    } : null,
+    effortUpdatedFromNotification: updatedModelTriggerText.includes(selectedEffortLabel),
+    settingsRestored: true,
+    menusClosed: await page.locator('.composer-model-menu-layer').count() === 0,
+  };
 }
 
 function currentPlatformKey() {
@@ -1464,6 +1846,11 @@ function jsonRpcPeer(child) {
 async function startResponsesFixture() {
   const gateRequestBodies = [];
   const server = createServer(async (request, response) => {
+    if (request.method === 'GET' && request.url === '/browser-fixture') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end('<!doctype html><html><head><title>Gate B Browser Fixture</title><style>body{margin:0;padding:32px;font:16px system-ui;color:#18181b;background:#fff}main{font-weight:600}</style></head><body><main id="browser-ready">gate-b-browser-ready</main></body></html>');
+      return;
+    }
     if (request.method === 'POST' && request.url === '/v1/images/generations') {
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({
@@ -1544,10 +1931,41 @@ function gateBResponseEvents(index, requestBody) {
   }
   if (index === 3) return assistantResponse('gate-b-response-3', 'gate-b-message-1', 'Gate B complete');
   if (index === 4) {
-    const commandTool = requireTool(requestBody, ['exec_command', 'shell_command']);
+    const codeModeExec = codeModeExecTool(requestBody);
+    const commandTool = codeModeExec ? requireCodeModeTool(requestBody, ['exec_command']) : requireTool(requestBody, ['exec_command', 'shell_command']);
     const commandArguments = commandTool === 'exec_command'
       ? { cmd: "printf 'gate-b-shell-output\\n'", yield_time_ms: 1_000 }
       : { command: "printf 'gate-b-shell-output\\n'", timeout_ms: 5_000 };
+    const toolEvents = codeModeExec
+      ? [
+        {
+          type: 'response.output_item.done',
+          item: {
+            type: 'function_call',
+            call_id: 'gate-b-image-1',
+            namespace: 'image_gen',
+            name: 'imagegen',
+            arguments: JSON.stringify({ prompt: 'LimeShot projection image' }),
+          },
+        },
+        customToolCall('gate-b-shell-1', 'exec', [
+        `const commandResult = await tools.${commandTool}(${JSON.stringify(commandArguments)});`,
+        'text(JSON.stringify(commandResult));',
+        ].join('\n')),
+      ]
+      : [
+        {
+          type: 'response.output_item.done',
+          item: {
+            type: 'function_call',
+            call_id: 'gate-b-image-1',
+            namespace: 'image_gen',
+            name: 'imagegen',
+            arguments: JSON.stringify({ prompt: 'LimeShot projection image' }),
+          },
+        },
+        functionCall('gate-b-shell-1', commandTool, commandArguments),
+      ];
     return [
       responseCreated('gate-b-response-4'),
       {
@@ -1568,22 +1986,24 @@ function gateBResponseEvents(index, requestBody) {
           encrypted_content: Buffer.from('b'.repeat(600)).toString('base64'),
         },
       },
-      {
-        type: 'response.output_item.done',
-        item: {
-          type: 'function_call',
-          call_id: 'gate-b-image-1',
-          namespace: 'image_gen',
-          name: 'imagegen',
-          arguments: JSON.stringify({ prompt: 'LimeShot projection image' }),
-        },
-      },
-      functionCall('gate-b-shell-1', commandTool, commandArguments),
+      ...toolEvents,
       responseCompleted('gate-b-response-4'),
     ];
   }
   if (index === 5) {
     const patch = '*** Begin Patch\n*** Add File: gate-b-projection.txt\n+Gate B diff projection\n*** End Patch\n';
+    if (codeModeExecTool(requestBody)) {
+      const commandTool = requireCodeModeTool(requestBody, ['exec_command']);
+      const command = `apply_patch <<'PATCH'\n${patch}PATCH\n`;
+      return [
+        responseCreated('gate-b-response-5'),
+        customToolCall('gate-b-patch-1', 'exec', [
+          `const patchResult = await tools.${commandTool}({ cmd: ${JSON.stringify(command)} });`,
+          'text(JSON.stringify(patchResult));',
+        ].join('\n')),
+        responseCompleted('gate-b-response-5'),
+      ];
+    }
     const applyPatch = advertisedTool(requestBody, 'apply_patch');
     if (applyPatch) {
       return [
@@ -1601,8 +2021,18 @@ function gateBResponseEvents(index, requestBody) {
     ];
   }
   if (index === 6) {
+    if (codeModeExecTool(requestBody)) {
+      return [
+        responseCreated('gate-b-response-6'),
+        customToolCall('gate-b-search-tools-1', 'exec', [
+          "const discoveredTools = ALL_TOOLS.filter(({ name }) => name.includes('mcp__gate_b') || name.includes('echo_tool'));",
+          'text(JSON.stringify(discoveredTools));',
+        ].join('\n')),
+        responseCompleted('gate-b-response-6'),
+      ];
+    }
     if (!advertisedTool(requestBody, 'tool_search')) {
-      throw new Error(`Codex tool_search was not advertised: ${JSON.stringify(requestBody.tools ?? [])}`);
+      throw new Error(`Codex tool_search was not advertised: ${JSON.stringify(responseTools(requestBody))}`);
     }
     return [
       responseCreated('gate-b-response-6'),
@@ -1623,6 +2053,18 @@ function gateBResponseEvents(index, requestBody) {
     if (!discoveredTools.includes('mcp__gate_b') || !discoveredTools.includes('echo_tool')) {
       throw new Error(`MCP Gate B tool was not discovered: ${discoveredTools}`);
     }
+    if (!advertisedTool(requestBody, 'echo_tool', 'mcp__gate_b') && codeModeExecTool(requestBody)) {
+      return [
+        responseCreated('gate-b-response-7'),
+        customToolCall('gate-b-mcp-1', 'exec', [
+          "const mcpTool = ALL_TOOLS.find(({ name }) => name === 'mcp__gate_b__echo_tool');",
+          "if (!mcpTool) throw new Error('Gate B MCP tool is unavailable in code mode');",
+          "const mcpResult = await tools[mcpTool.name]({ message: 'projection-ready' });",
+          'text(JSON.stringify(mcpResult));',
+        ].join('\n')),
+        responseCompleted('gate-b-response-7'),
+      ];
+    }
     return [
       responseCreated('gate-b-response-7'),
       {
@@ -1639,41 +2081,64 @@ function gateBResponseEvents(index, requestBody) {
     ];
   }
   if (index === 8) {
+    const userInputArguments = {
+      questions: [
+        {
+          id: 'confirm_projection',
+          header: 'Confirm',
+          question: 'Keep the verified projections?',
+          isOther: true,
+          options: [
+            { label: 'Yes (Recommended)', description: 'Keep the verified projection result.' },
+            { label: 'No', description: 'Discard the projection result.' },
+          ],
+        },
+        {
+          id: 'secret_note',
+          header: 'Secret',
+          question: 'Enter a secret verification value.',
+          isOther: true,
+          isSecret: true,
+          options: [
+            { label: 'Provide secret', description: 'Enter the verification value privately.' },
+            { label: 'Skip secret', description: 'Continue without a verification value.' },
+          ],
+        },
+      ],
+    };
+    if (!advertisedTool(requestBody, 'request_user_input') && codeModeExecTool(requestBody)) {
+      const requestUserInput = requireCodeModeTool(requestBody, ['request_user_input']);
+      return [
+        responseCreated('gate-b-response-8'),
+        customToolCall('gate-b-user-input-1', 'exec', [
+          `const userInputResult = await tools.${requestUserInput}(${JSON.stringify(userInputArguments)});`,
+          'text(JSON.stringify(userInputResult));',
+        ].join('\n')),
+        responseCompleted('gate-b-response-8'),
+      ];
+    }
     if (!advertisedTool(requestBody, 'request_user_input')) {
-      throw new Error(`request_user_input was not advertised: ${JSON.stringify(requestBody.tools ?? [])}`);
+      throw new Error(`request_user_input was not advertised: ${JSON.stringify(responseTools(requestBody))}`);
     }
     return [
       responseCreated('gate-b-response-8'),
-      functionCall('gate-b-user-input-1', 'request_user_input', {
-        questions: [
-          {
-            id: 'confirm_projection',
-            header: 'Confirm',
-            question: 'Keep the verified projections?',
-            isOther: true,
-            options: [
-              { label: 'Yes (Recommended)', description: 'Keep the verified projection result.' },
-              { label: 'No', description: 'Discard the projection result.' },
-            ],
-          },
-          {
-            id: 'secret_note',
-            header: 'Secret',
-            question: 'Enter a secret verification value.',
-            isOther: true,
-            isSecret: true,
-            options: [
-              { label: 'Provide secret', description: 'Enter the verification value privately.' },
-              { label: 'Skip secret', description: 'Continue without a verification value.' },
-            ],
-          },
-        ],
-      }),
+      functionCall('gate-b-user-input-1', 'request_user_input', userInputArguments),
       responseCompleted('gate-b-response-8'),
     ];
   }
   if (index === 9) return assistantResponse('gate-b-response-9', 'gate-b-message-2', 'Projection Gate B complete');
   if (index === 10) {
+    if (codeModeExecTool(requestBody)) {
+      const commandTool = requireCodeModeTool(requestBody, ['exec_command']);
+      return [
+        responseCreated('gate-b-response-10'),
+        customToolCall('gate-b-interrupt-1', 'exec', [
+          `const commandResult = await tools.${commandTool}({ cmd: 'sleep 30', yield_time_ms: 1000 });`,
+          'text(JSON.stringify(commandResult));',
+        ].join('\n')),
+        responseCompleted('gate-b-response-10'),
+      ];
+    }
     const commandTool = requireTool(requestBody, ['exec_command', 'shell_command']);
     return [
       responseCreated('gate-b-response-10'),
@@ -1696,6 +2161,13 @@ function functionCall(callId, name, argumentsValue) {
   };
 }
 
+function customToolCall(callId, name, input) {
+  return {
+    type: 'response.output_item.done',
+    item: { type: 'custom_tool_call', call_id: callId, name, input },
+  };
+}
+
 function assistantResponse(responseId, messageId, text) {
   return [
     responseCreated(responseId),
@@ -1709,13 +2181,37 @@ function assistantResponse(responseId, messageId, text) {
 
 function requireTool(requestBody, names) {
   const name = names.find((candidate) => advertisedTool(requestBody, candidate));
-  if (!name) throw new Error(`Required Gate B tool was not advertised (${names.join(', ')}): ${JSON.stringify(requestBody.tools ?? [])}`);
+  if (!name) throw new Error(`Required Gate B tool was not advertised (${names.join(', ')}): ${JSON.stringify(responseTools(requestBody))}`);
   return name;
 }
 
+function requireCodeModeTool(requestBody, names) {
+  const execTool = codeModeExecTool(requestBody);
+  const name = names.find((candidate) => execTool?.description?.includes(`tools.${candidate}`));
+  if (!name) throw new Error(`Required Gate B nested tool was not advertised (${names.join(', ')}): ${JSON.stringify(responseToolNames(requestBody))}`);
+  return name;
+}
+
+function codeModeExecTool(requestBody) {
+  return responseTools(requestBody).find((tool) => tool?.type === 'custom' && tool?.name === 'exec');
+}
+
+function responseTools(requestBody) {
+  const tools = Array.isArray(requestBody.tools) ? requestBody.tools : [];
+  const additionalTools = Array.isArray(requestBody.input)
+    ? requestBody.input
+      .filter((item) => item?.type === 'additional_tools' && Array.isArray(item.tools))
+      .flatMap((item) => item.tools)
+    : [];
+  return [...tools, ...additionalTools];
+}
+
+function responseToolNames(requestBody) {
+  return responseTools(requestBody).map((tool) => tool?.namespace ? `${tool.namespace}/${tool.name}` : tool?.name ?? tool?.type);
+}
+
 function advertisedTool(requestBody, name, namespace) {
-  if (!Array.isArray(requestBody.tools)) return false;
-  return requestBody.tools.some((tool) => {
+  return responseTools(requestBody).some((tool) => {
     if (namespace === undefined) return tool?.name === name || tool?.type === name;
     if (tool?.name === name && tool?.namespace === namespace) return true;
     return tool?.type === 'namespace'

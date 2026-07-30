@@ -10,6 +10,7 @@
 | --- | --- |
 | `TL` | Conversation 时间线/Item renderer |
 | `TP` | Turn 附属计划、Diff、用量或终态 |
+| `RW` | Review Workspace，默认关闭的会话级 Diff 主区与最右文件树 |
 | `PI` | Pending interaction，位于 Composer 上方并锚定 item |
 | `HS` | 对话页 header/status region |
 | `GN` | 应用级通知、设置或全局状态 |
@@ -42,7 +43,7 @@
 | 17 | `hook/started` | `TL/HS` | 建立 Hook 活动；并行相同 Hook 可视觉合并计数，但保留 run id |
 | 18 | `turn/completed` | `TL/TP` | 以完整 Turn 覆盖终态；完成/中断/失败、error、timing 均投影并清 pending |
 | 19 | `hook/completed` | `TL` | 更新 Hook status、duration、entries；blocked/failed 输出显著显示 |
-| 20 | `turn/diff/updated` | `TP` | 替换 Turn 聚合 Diff snapshot；不 append，不代替各 fileChange item |
+| 20 | `turn/diff/updated` | `RW` | 替换 Turn 聚合 Diff snapshot；只在缺少结构化 fileChange 时作为 Review fallback，不 append |
 | 21 | `turn/plan/updated` | `TP` | 更新 checklist：pending/inProgress/completed 和 explanation；与 `plan` item 分开 |
 
 ### 2.2 Item 生命周期、流和进程（22-38）
@@ -63,7 +64,7 @@
 | 33 | `item/commandExecution/outputDelta` | `TL` | 追加指定命令 stdout/stderr 有界 buffer，更新 live preview |
 | 34 | `item/commandExecution/terminalInteraction` | `TL/DX` | 显示“已发送终端输入”的遮蔽摘要；processId 只留 main，secret stdin 不下发 |
 | 35 | `item/fileChange/outputDelta` | `DX` | deprecated；识别但不覆盖 patch，只记录兼容诊断 |
-| 36 | `item/fileChange/patchUpdated` | `TL/TP` | 以完整 `changes[]` 替换 item 当前 Diff snapshot |
+| 36 | `item/fileChange/patchUpdated` | `TL/RW` | 以完整 `changes[]` 替换时间线摘要与 Review 文件树/diff snapshot |
 | 37 | `serverRequest/resolved` | `PI` | 以 request id 清理跨客户端已解决交互，按钮 disabled 并显示已处理 |
 | 38 | `item/mcpToolCall/progress` | `TL` | 更新 MCP 最新进度和有界历史；完成时由 completed item 终结 |
 
@@ -211,7 +212,7 @@ type PendingInteractionProjection =
 
 ### 8.2 Turn diff
 
-`turn/diff/updated` 是本 Turn 全部文件修改的聚合 snapshot。放在 Turn 底部“本轮变更”面板，按需展开；具体文件工具行仍由 `fileChange` item 呈现。
+`turn/diff/updated` 是本 Turn 全部文件修改的聚合 snapshot。时间线不再渲染平级“本轮变更”面板；当没有结构化 `fileChange.changes[]` 时，它才作为 Review 工作区的只读 fallback。具体文件活动入口仍由 `fileChange` item 呈现。
 
 ### 8.3 Token usage
 

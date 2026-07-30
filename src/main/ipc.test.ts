@@ -13,6 +13,12 @@ const electron = vi.hoisted(() => {
   return {
     handlers,
     clipboard: { writeText: vi.fn() },
+    dialog: { showOpenDialog: vi.fn() },
+    desktopCapturer: { getSources: vi.fn(async () => []) },
+    nativeImage: {
+      createFromBuffer: vi.fn(() => ({ resize: vi.fn(() => ({ toDataURL: vi.fn(() => 'data:image/png;base64,') })) })),
+      createFromPath: vi.fn(() => ({ isEmpty: vi.fn(() => true) })),
+    },
     ipcMain: {
       handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler)),
       removeHandler: vi.fn((channel: string) => handlers.delete(channel)),
@@ -25,14 +31,16 @@ vi.mock('electron', () => ({
   app: {
     getAppPath: vi.fn(() => '/tmp/limeshot'),
     getPath: vi.fn(() => '/tmp/limeshot'),
-    getVersion: vi.fn(() => '0.4.0'),
+    getVersion: vi.fn(() => '0.5.0'),
     isPackaged: false,
   },
   BrowserWindow: {
     fromWebContents: vi.fn(() => null),
     getAllWindows: vi.fn(() => []),
   },
-  dialog: { showOpenDialog: vi.fn() },
+  dialog: electron.dialog,
+  desktopCapturer: electron.desktopCapturer,
+  nativeImage: electron.nativeImage,
   clipboard: electron.clipboard,
   ipcMain: electron.ipcMain,
   shell: electron.shell,
@@ -44,6 +52,7 @@ interface SupervisorMocks {
   business: BusinessSupervisor;
   businessRequest: ReturnType<typeof vi.fn>;
   codex: CodexSupervisor;
+  codexIsThreadActive: ReturnType<typeof vi.fn>;
   codexIsThreadUnmaterialized: ReturnType<typeof vi.fn>;
   codexRequest: ReturnType<typeof vi.fn>;
 }
@@ -54,6 +63,209 @@ beforeEach(() => {
 });
 
 describe('sidebar conversation IPC', () => {
+  it('projects the active model settings returned by thread start and resume', async () => {
+    const { business, codex, codexRequest } = supervisors();
+    codexRequest.mockImplementation(async (method: string, params: { threadId?: string }) => {
+      if (method === 'model/list') return {
+        data: [{
+          id: 'model-sol', model: 'gpt-5.6-sol', displayName: '5.6 Sol', description: '', hidden: false,
+          supportedReasoningEfforts: [{ reasoningEffort: 'high', description: '' }],
+          defaultReasoningEffort: 'high', isDefault: true,
+        }],
+        nextCursor: null,
+      };
+      if (method === 'thread/start') return {
+        thread: { id: 'thread-new', turns: [] },
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+      };
+      if (method === 'thread/resume' && params.threadId === 'thread-new') return {
+        thread: { id: 'thread-new', historyMode: 'paginated' },
+        model: 'gpt-5.4',
+        reasoningEffort: 'medium',
+      };
+      if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+      return {};
+    });
+    registerIpc(business, codex, new ConversationBindings());
+
+    await expect(invoke(DESKTOP_IPC.conversationStart, {
+      projectId: null,
+      conversationId: 'new',
+      initialModelSettings: { model: 'gpt-5.6-sol', effort: 'high' },
+    })).resolves.toEqual({
+      conversationId: 'thread-new',
+      threadId: 'thread-new',
+      turns: [],
+      access: 'active',
+      modelSettings: { model: 'gpt-5.6-sol', effort: 'high' },
+    });
+    expect(codexRequest).toHaveBeenCalledWith('thread/start', expect.objectContaining({
+      model: 'gpt-5.6-sol',
+      config: { model_reasoning_effort: 'high' },
+    }));
+
+    await expect(invoke(DESKTOP_IPC.conversationStart, {
+      projectId: null,
+      conversationId: 'thread-new',
+      threadId: 'thread-new',
+    })).resolves.toEqual({
+      conversationId: 'thread-new',
+      threadId: 'thread-new',
+      turns: [],
+      access: 'active',
+      modelSettings: { model: 'gpt-5.4', effort: 'medium' },
+    });
+  });
+
+  it('projects the live Codex model catalog and applies only supported settings to an owned thread', async () => {
+    const { business, businessRequest, codex, codexRequest } = supervisors();
+    businessRequest.mockResolvedValue({
+      binding: { projectId: 'project-1', conversationId: 'conversation-1', codexThreadId: 'thread-1' },
+    });
+    codexRequest.mockImplementation(async (method: string) => {
+      if (method === 'model/list') return {
+        data: [{
+          id: 'model-56', model: 'gpt-5.6', displayName: '5.6 Sol', description: 'Fast coding model', hidden: false,
+          supportedReasoningEfforts: [
+            { reasoningEffort: 'medium', description: 'Balanced' },
+            { reasoningEffort: 'xhigh', description: 'Deep reasoning' },
+          ],
+          defaultReasoningEffort: 'medium', isDefault: true,
+        }],
+        nextCursor: null,
+      };
+      return {};
+    });
+    registerIpc(business, codex, new ConversationBindings());
+
+    await expect(invoke(DESKTOP_IPC.agentModelList)).resolves.toEqual({
+      models: [{
+        id: 'model-56', model: 'gpt-5.6', displayName: '5.6 Sol', description: 'Fast coding model',
+        supportedReasoningEfforts: [
+          { effort: 'medium', description: 'Balanced' },
+          { effort: 'xhigh', description: 'Deep reasoning' },
+        ],
+        defaultReasoningEffort: 'medium', isDefault: true,
+      }],
+    });
+
+    await invoke(DESKTOP_IPC.agentThreadSettingsUpdate, { ...target(), model: 'gpt-5.6', effort: 'xhigh' });
+    expect(codexRequest).toHaveBeenCalledWith('thread/settings/update', {
+      threadId: 'thread-1', model: 'gpt-5.6', effort: 'xhigh',
+    });
+
+    await expect(invoke(DESKTOP_IPC.agentThreadSettingsUpdate, {
+      ...target(), model: 'gpt-5.6', effort: 'unsupported',
+    })).rejects.toThrow('所选推理强度不受当前模型支持');
+    await expect(invoke(DESKTOP_IPC.conversationStart, {
+      projectId: null,
+      conversationId: 'draft-invalid',
+      initialModelSettings: { model: 'gpt-5.6', effort: 'unsupported' },
+    })).rejects.toThrow('所选推理强度不受当前模型支持');
+  });
+
+  it('keeps attachment paths in Main and maps plugins, Goal, and Plan to native Codex input', async () => {
+    const { business, codex, codexRequest } = supervisors();
+    codexRequest.mockImplementation(async (method: string) => {
+      if (method === 'thread/start') return {
+        thread: { id: 'thread-composer', turns: [] }, model: 'gpt-5.4', reasoningEffort: 'medium',
+      };
+      if (method === 'plugin/list') return {
+        marketplaces: [{
+          name: 'local', path: '/private/marketplace', interface: null,
+          plugins: [{
+            id: 'docs-plugin', name: 'docs', installed: true, enabled: true, availability: 'AVAILABLE',
+            interface: { displayName: 'Docs', shortDescription: 'Document tools', longDescription: null, defaultPrompt: [] },
+          }],
+        }],
+        marketplaceLoadErrors: [],
+        featuredPluginIds: [],
+      };
+      if (method === 'collaborationMode/list') return {
+        data: [{ name: 'Plan', mode: 'plan', model: null, reasoning_effort: null }],
+      };
+      if (method === 'model/list') return {
+        data: [{
+          id: 'model-54', model: 'gpt-5.4', displayName: '5.4', description: '', hidden: false,
+          supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: '' }],
+          defaultReasoningEffort: 'medium', isDefault: true,
+        }],
+        nextCursor: null,
+      };
+      if (method === 'thread/read') return { thread: { id: 'thread-composer', cwd: '/workspace/limeshot' } };
+      if (method === 'turn/start') return { turn: { id: 'turn-composer' } };
+      return {};
+    });
+    registerIpc(business, codex, new ConversationBindings());
+    await invokeAs(7, DESKTOP_IPC.conversationStart, { projectId: null, conversationId: 'draft-composer' });
+
+    const firstCatalog = await invokeAs(7, DESKTOP_IPC.agentComposerCatalog, { projectId: null }) as {
+      capabilities: Array<{ id: string; label: string }>;
+    };
+    expect(firstCatalog.capabilities).toEqual([expect.objectContaining({ label: 'Docs' })]);
+    expect(JSON.stringify(firstCatalog)).not.toContain('/private/marketplace');
+    const staleCapabilityId = firstCatalog.capabilities[0]!.id;
+    const currentCatalog = await invokeAs(7, DESKTOP_IPC.agentComposerCatalog, { projectId: null }) as typeof firstCatalog;
+    expect(currentCatalog.capabilities[0]!.id).not.toBe(staleCapabilityId);
+
+    electron.dialog.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [join(process.cwd(), 'README.md')],
+    });
+    const attachments = await invokeAs(7, DESKTOP_IPC.agentAttachmentPick, { selection: 'files' }) as Array<{ id: string; label: string }>;
+    expect(attachments).toEqual([expect.objectContaining({ label: 'README.md' })]);
+    expect(JSON.stringify(attachments)).not.toContain(process.cwd());
+
+    await expect(invokeAs(7, DESKTOP_IPC.turnStart, {
+      projectId: null, conversationId: 'thread-composer', threadId: 'thread-composer', text: 'stale',
+      capabilityIds: [staleCapabilityId],
+    })).rejects.toThrow('插件能力已失效');
+    await expect(invokeAs(8, DESKTOP_IPC.turnStart, {
+      projectId: null, conversationId: 'thread-composer', threadId: 'thread-composer', text: 'other owner',
+      attachmentIds: [attachments[0]!.id],
+    })).rejects.toThrow('附件已失效');
+
+    await invokeAs(7, DESKTOP_IPC.turnStart, {
+      projectId: null,
+      conversationId: 'thread-composer',
+      threadId: 'thread-composer',
+      text: 'Ship the docs',
+      attachmentIds: [attachments[0]!.id],
+      capabilityIds: [currentCatalog.capabilities[0]!.id],
+      mode: 'goal',
+    });
+    const goalCall = codexRequest.mock.calls.findIndex(([method]) => method === 'thread/goal/set');
+    const goalTurnCall = codexRequest.mock.calls.findIndex(([method], index) => index > goalCall && method === 'turn/start');
+    expect(goalCall).toBeGreaterThan(-1);
+    expect(goalTurnCall).toBeGreaterThan(goalCall);
+    expect(codexRequest.mock.calls[goalTurnCall]).toEqual(['turn/start', {
+      threadId: 'thread-composer',
+      input: [
+        { type: 'text', text: 'Ship the docs', text_elements: [] },
+        { type: 'mention', name: 'README.md', path: join(process.cwd(), 'README.md') },
+        { type: 'mention', name: 'Docs', path: 'plugin://docs-plugin' },
+      ],
+    }]);
+
+    await invokeAs(7, DESKTOP_IPC.turnStart, {
+      projectId: null,
+      conversationId: 'thread-composer',
+      threadId: 'thread-composer',
+      text: 'Plan this task',
+      mode: 'plan',
+      modelSettings: { model: 'gpt-5.4', effort: 'medium' },
+    });
+    expect(codexRequest).toHaveBeenLastCalledWith('turn/start', {
+      threadId: 'thread-composer',
+      input: [{ type: 'text', text: 'Plan this task', text_elements: [] }],
+      collaborationMode: {
+        mode: 'plan',
+        settings: { model: 'gpt-5.4', reasoning_effort: null, developer_instructions: null },
+      },
+    });
+  });
+
   it('rejects project and standalone targets that are not owned by the caller context', async () => {
     const { business, businessRequest, codex, codexRequest } = supervisors();
     businessRequest.mockResolvedValueOnce({
@@ -352,17 +564,20 @@ describe('sidebar conversation IPC', () => {
 function supervisors(): SupervisorMocks {
   const businessRequest = vi.fn();
   const codexRequest = vi.fn().mockResolvedValue({});
+  const codexIsThreadActive = vi.fn(() => true);
   const codexIsThreadUnmaterialized = vi.fn(() => false);
   return {
     business: { request: businessRequest } as unknown as BusinessSupervisor,
     businessRequest,
     codex: {
       defaultCwd: vi.fn(() => '/workspace/limeshot'),
+      isThreadActive: codexIsThreadActive,
       isThreadUnmaterialized: codexIsThreadUnmaterialized,
       request: codexRequest,
       subscribe: vi.fn(() => vi.fn()),
       subscribeInteractions: vi.fn(() => vi.fn()),
     } as unknown as CodexSupervisor,
+    codexIsThreadActive,
     codexIsThreadUnmaterialized,
     codexRequest,
   };
@@ -391,4 +606,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   const handler = electron.handlers.get(channel);
   if (!handler) throw new Error(`missing IPC handler: ${channel}`);
   return handler({ sender: {} }, ...args);
+}
+
+async function invokeAs(ownerId: number, channel: string, ...args: unknown[]): Promise<unknown> {
+  const handler = electron.handlers.get(channel);
+  if (!handler) throw new Error(`missing IPC handler: ${channel}`);
+  return handler({ sender: { id: ownerId } }, ...args);
 }

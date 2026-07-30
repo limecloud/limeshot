@@ -4,14 +4,21 @@ import { BrowserWindow, clipboard, dialog, ipcMain, shell, type OpenDialogOption
 
 import { BusinessRpcError } from '@business/index';
 import type { ApprovalDecideParams, BriefInput, BriefUpdateParams, DeliverableConfirmParams, ProjectArchiveParams, ProjectRenameParams, TaskCancelParams, TaskRetryParams, TaskStartParams } from '@business/generated';
-import { CODEX_NEW_THREAD_HISTORY_MODE, CodexRpcError, type CodexDynamicTool, type CodexRequestResult, type CodexThread } from '@codex/index';
+import { CODEX_NEW_THREAD_HISTORY_MODE, CodexRpcError, type CodexDynamicTool, type CodexModel, type CodexRequestParams, type CodexRequestResult, type CodexThread } from '@codex/index';
 import {
   DESKTOP_IPC,
   type AgentConversationSummary,
+  type AgentAttachmentPickInput,
+  type AgentCaptureSourceInput,
+  type AgentComposerCatalogInput,
+  type AgentComposerCatalogResult,
+  type AgentModelListResult,
+  type AgentModelSettings,
   type AgentProjectConversationSummary,
   type AgentInteractionSubmitInput,
   type AgentInteractionExternalOpenInput,
   type AgentThreadInspectInput,
+  type AgentThreadSettingsUpdateInput,
   type ConversationImportInput,
   type ConversationRenameInput,
   type ConversationStartInput,
@@ -31,14 +38,18 @@ import { CodexSupervisor } from './codex/supervisor';
 import { projectNotification, projectThread } from './codex/projection';
 import { inspectSubThread, readFullThreadTurns } from './codex/threadNavigation';
 import { ConversationBindings } from './conversationBindings';
+import { ComposerHost } from './composer';
+import { registerWorkspaceIpc } from './workspace/register';
 
 export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor, bindings: ConversationBindings): () => void {
   const conversationStarts = new Map<string, Promise<ConversationStartResult>>();
   const standaloneThreadIds = new Set<string>();
   const importedThreadIds = new Set<string>();
   const importedProjectThreads = new Map<string, string>();
+  const composerHost = new ComposerHost(codex);
   let threadCatalog: { loadedAt: number; threads: CodexThread[] } | undefined;
   let threadCatalogRequest: Promise<CodexThread[]> | undefined;
+  const disposeWorkspaceIpc = registerWorkspaceIpc((projectId) => projectWorkingDirectory(business, projectId));
 
   const readThreadCatalog = (): Promise<CodexThread[]> => {
     if (threadCatalog && Date.now() - threadCatalog.loadedAt < 2_000) return Promise.resolve(threadCatalog.threads);
@@ -270,6 +281,32 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
     return { archivedThreadIds, failedThreadIds };
   });
   ipcMain.handle(DESKTOP_IPC.threadInspect, (_event, input: AgentThreadInspectInput) => inspectSubThread(codex, input));
+  ipcMain.handle(DESKTOP_IPC.agentComposerCatalog, async (event, input: AgentComposerCatalogInput): Promise<AgentComposerCatalogResult> => {
+    if (!input || (input.projectId !== null && (typeof input.projectId !== 'string' || !input.projectId))) throw new Error('无效的 Composer 上下文');
+    if (input.threadId) {
+      if (!input.conversationId) throw new Error('无效的会话参数');
+      await assertConversationTarget(business, standaloneThreadIds, importedProjectThreads, {
+        projectId: input.projectId,
+        conversationId: input.conversationId,
+        threadId: input.threadId,
+      });
+    }
+    const cwd = await resolveComposerCwd(business, codex, input);
+    return composerHost.listCatalog(event.sender.id ?? 0, cwd);
+  });
+  ipcMain.handle(DESKTOP_IPC.agentAttachmentPick, (event, input: AgentAttachmentPickInput) => composerHost.pickAttachments(event.sender, input));
+  ipcMain.handle(DESKTOP_IPC.agentCaptureSourceList, (event) => composerHost.listCaptureSources(event.sender));
+  ipcMain.handle(DESKTOP_IPC.agentCaptureSource, (event, input: AgentCaptureSourceInput) => composerHost.captureSource(event.sender, input));
+  ipcMain.handle(DESKTOP_IPC.agentModelList, async (): Promise<AgentModelListResult> => ({
+    models: (await listCodexModels(codex)).map(projectModelOption),
+  }));
+  ipcMain.handle(DESKTOP_IPC.agentThreadSettingsUpdate, async (_event, input: AgentThreadSettingsUpdateInput): Promise<void> => {
+    await assertConversationTarget(business, standaloneThreadIds, importedProjectThreads, input);
+    if (importedThreadIds.has(input.threadId)) throw new Error('导入的 Codex 会话为只读');
+    const settings = await validateModelSettings(codex, input);
+    if (!codex.isThreadActive(input.threadId)) await codex.request('thread/resume', { threadId: input.threadId });
+    await codex.request('thread/settings/update', { threadId: input.threadId, ...settings });
+  });
 
   async function startConversation(
     businessSupervisor: BusinessSupervisor,
@@ -277,6 +314,9 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
     conversationBindings: ConversationBindings,
     input: ConversationStartInput,
   ): Promise<ConversationStartResult> {
+    const initialModelSettings = input.initialModelSettings
+      ? await validateModelSettings(codexSupervisor, input.initialModelSettings)
+      : undefined;
     if (input.projectId === null) {
       if (input.threadId && !standaloneThreadIds.has(input.threadId)) throw new Error('无效的独立会话标识');
       if (input.threadId) {
@@ -295,7 +335,7 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
         try {
           const resumed = await codexSupervisor.request('thread/resume', { threadId, excludeTurns: true });
           const turns = await readFullThreadTurns(codexSupervisor, threadId, resumed.thread.historyMode);
-          return { conversationId: threadId, threadId, turns, access: 'active' };
+          return { conversationId: threadId, threadId, turns, access: 'active', modelSettings: projectResponseModelSettings(resumed) };
         } catch {
           const stored = await codexSupervisor.request('thread/read', { threadId });
           const turns = await readFullThreadTurns(codexSupervisor, threadId, stored.thread.historyMode);
@@ -303,6 +343,7 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
         }
       }
       const started = await codexSupervisor.request('thread/start', {
+        ...threadStartModelSettings(initialModelSettings),
         cwd: codexSupervisor.defaultCwd(),
         approvalPolicy: 'on-request',
         sandbox: 'read-only',
@@ -310,7 +351,13 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
       });
       const threadId = started.thread.id;
       standaloneThreadIds.add(threadId);
-      return { conversationId: threadId, threadId, turns: projectThread(started.thread), access: 'active' };
+      return {
+        conversationId: threadId,
+        threadId,
+        turns: projectThread(started.thread),
+        access: 'active',
+        modelSettings: projectResponseModelSettings(started),
+      };
     }
     const projectInput = { projectId: input.projectId, conversationId: input.conversationId };
     const importedThreadId = input.threadId ?? input.conversationId;
@@ -332,10 +379,16 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
       try {
         const resumed = await codexSupervisor.request('thread/resume', { threadId, excludeTurns: true });
         const turns = await readFullThreadTurns(codexSupervisor, threadId, resumed.thread.historyMode);
-        return { conversationId: projectInput.conversationId, threadId, turns, access: 'active' };
+        return {
+          conversationId: projectInput.conversationId,
+          threadId,
+          turns,
+          access: 'active',
+          modelSettings: projectResponseModelSettings(resumed),
+        };
       } catch (resumeError) {
         if (isUnmaterializedThreadError(resumeError)) {
-          return createConversationThread(businessSupervisor, codexSupervisor, conversationBindings, projectInput, threadId);
+          return createConversationThread(businessSupervisor, codexSupervisor, conversationBindings, projectInput, threadId, initialModelSettings);
         }
         try {
           const stored = await codexSupervisor.request('thread/read', { threadId });
@@ -343,7 +396,7 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
           return { conversationId: projectInput.conversationId, threadId, turns, access: 'readOnly' };
         } catch (readError) {
           if (isUnmaterializedThreadError(readError)) {
-            return createConversationThread(businessSupervisor, codexSupervisor, conversationBindings, projectInput, threadId);
+            return createConversationThread(businessSupervisor, codexSupervisor, conversationBindings, projectInput, threadId, initialModelSettings);
           }
           throw readError;
         }
@@ -351,12 +404,16 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
     } catch (error) {
       if (!(error instanceof BusinessRpcError) || error.domainCode !== 'CONVERSATION_BINDING_NOT_FOUND') throw error;
     }
-    return createConversationThread(businessSupervisor, codexSupervisor, conversationBindings, projectInput, null);
+    return createConversationThread(businessSupervisor, codexSupervisor, conversationBindings, projectInput, null, initialModelSettings);
   }
 
-  ipcMain.handle(DESKTOP_IPC.turnStart, async (_event, input: TurnStartInput): Promise<TurnStartResult> => {
+  ipcMain.handle(DESKTOP_IPC.turnStart, async (event, input: TurnStartInput): Promise<TurnStartResult> => {
     const text = input.text.trim();
-    if (!text) throw new Error('消息不能为空');
+    const attachmentIds = Array.isArray(input.attachmentIds) ? input.attachmentIds : [];
+    const capabilityIds = Array.isArray(input.capabilityIds) ? input.capabilityIds : [];
+    const mode = input.mode ?? 'default';
+    if (!['default', 'plan', 'goal'].includes(mode)) throw new Error('无效的 Composer 模式');
+    if (mode === 'goal' && !text) throw new Error('目标不能为空');
     if (typeof input.threadId !== 'string' || !input.threadId) throw new Error('无效的 Codex Thread 标识');
     if (importedThreadIds.has(input.threadId)) throw new Error('导入的 Codex 会话为只读');
     if (input.projectId === null) {
@@ -367,7 +424,25 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
       bindings.remember(input.threadId, { projectId: input.projectId, conversationId: input.conversationId });
     }
     if (!codex.isThreadActive(input.threadId)) await codex.request('thread/resume', { threadId: input.threadId });
-    const result = await codex.request('turn/start', { threadId: input.threadId, input: [{ type: 'text', text, text_elements: [] }] });
+    const cwd = await resolveComposerCwd(business, codex, input);
+    const structuredInput = composerHost.resolveInputs(event.sender, cwd, attachmentIds, capabilityIds);
+    const turnInput = [
+      ...(text ? [{ type: 'text' as const, text, text_elements: [] }] : []),
+      ...structuredInput,
+    ];
+    if (turnInput.length === 0) throw new Error('消息或附件不能为空');
+    if (mode === 'goal') {
+      await codex.request('thread/goal/set', { threadId: input.threadId, objective: text, status: 'active' });
+    }
+    const collaborationMode = mode === 'plan'
+      ? await resolvePlanMode(codex, input.modelSettings)
+      : undefined;
+    const result = await codex.request('turn/start', {
+      threadId: input.threadId,
+      input: turnInput,
+      ...(collaborationMode ? { collaborationMode } : {}),
+    });
+    composerHost.releaseInputs(event.sender, attachmentIds, capabilityIds);
     return { threadId: input.threadId, turnId: result.turn.id };
   });
 
@@ -390,6 +465,7 @@ export function registerIpc(business: BusinessSupervisor, codex: CodexSupervisor
   return () => {
     unsubscribe();
     unsubscribeInteractions();
+    disposeWorkspaceIpc();
     for (const channel of Object.values(DESKTOP_IPC).filter((channel) => channel !== DESKTOP_IPC.agentEvent)) ipcMain.removeHandler(channel);
   };
 }
@@ -449,6 +525,17 @@ async function projectWorkingDirectory(business: BusinessSupervisor, projectId: 
   return result.workspacePath;
 }
 
+async function resolveComposerCwd(
+  business: BusinessSupervisor,
+  codex: CodexSupervisor,
+  input: { projectId: string | null; threadId?: string },
+): Promise<string> {
+  if (input.projectId !== null) return projectWorkingDirectory(business, input.projectId);
+  if (!input.threadId || codex.isThreadUnmaterialized(input.threadId)) return codex.defaultCwd();
+  const stored = await codex.request('thread/read', { threadId: input.threadId });
+  return stored.thread.cwd;
+}
+
 async function conversationWorkingDirectory(
   business: BusinessSupervisor,
   codex: CodexSupervisor,
@@ -490,6 +577,91 @@ async function listCodexThreads(codex: CodexSupervisor): Promise<CodexThread[]> 
     seenCursors.add(page.nextCursor);
     cursor = page.nextCursor;
   }
+}
+
+async function listCodexModels(codex: CodexSupervisor): Promise<CodexModel[]> {
+  const models: CodexModel[] = [];
+  let cursor: string | null = null;
+  const seenCursors = new Set<string>();
+  for (;;) {
+    const page: CodexRequestResult<'model/list'> = await codex.request('model/list', {
+      cursor,
+      limit: 100,
+      includeHidden: false,
+    });
+    models.push(...page.data.filter((model) => !model.hidden));
+    if (!page.nextCursor) return models;
+    if (seenCursors.has(page.nextCursor)) throw new Error('Codex 模型分页 cursor 重复');
+    seenCursors.add(page.nextCursor);
+    cursor = page.nextCursor;
+  }
+}
+
+function modelReasoningEfforts(model: CodexModel): CodexModel['supportedReasoningEfforts'] {
+  return model.supportedReasoningEfforts.length > 0
+    ? model.supportedReasoningEfforts
+    : [{ reasoningEffort: model.defaultReasoningEffort, description: '' }];
+}
+
+async function validateModelSettings(codex: CodexSupervisor, input: AgentModelSettings): Promise<AgentModelSettings> {
+  const model = typeof input.model === 'string' ? input.model.trim() : '';
+  const effort = typeof input.effort === 'string' ? input.effort.trim() : '';
+  if (!model || !effort || model.length > 200 || effort.length > 80) throw new Error('无效的模型设置');
+  const selectedModel = (await listCodexModels(codex)).find((item) => item.model === model);
+  if (!selectedModel) throw new Error('所选模型当前不可用');
+  if (!modelReasoningEfforts(selectedModel).some((item) => item.reasoningEffort === effort)) {
+    throw new Error('所选推理强度不受当前模型支持');
+  }
+  return { model, effort };
+}
+
+async function resolvePlanMode(
+  codex: CodexSupervisor,
+  input: AgentModelSettings | undefined,
+): Promise<NonNullable<CodexRequestParams<'turn/start'>['collaborationMode']>> {
+  if (!input) throw new Error('计划模式缺少当前模型设置');
+  const current = await validateModelSettings(codex, input);
+  const modes = await codex.request('collaborationMode/list', {});
+  const plan = modes.data.find((mode) => mode.mode === 'plan');
+  if (!plan) throw new Error('当前 Codex runtime 不支持计划模式');
+  const model = plan.model ?? current.model;
+  const reasoningEffort = plan.reasoning_effort === undefined ? current.effort : plan.reasoning_effort;
+  return {
+    mode: 'plan',
+    settings: {
+      model,
+      reasoning_effort: reasoningEffort,
+      developer_instructions: null,
+    },
+  };
+}
+
+function threadStartModelSettings(settings?: AgentModelSettings) {
+  return settings
+    ? { model: settings.model, config: { model_reasoning_effort: settings.effort } }
+    : {};
+}
+
+function projectModelOption(model: CodexModel): AgentModelListResult['models'][number] {
+  return {
+    id: model.id,
+    model: model.model,
+    displayName: model.displayName,
+    description: model.description,
+    supportedReasoningEfforts: modelReasoningEfforts(model).map((option) => ({
+      effort: option.reasoningEffort,
+      description: option.description,
+    })),
+    defaultReasoningEffort: model.defaultReasoningEffort,
+    isDefault: model.isDefault,
+  };
+}
+
+function projectResponseModelSettings(response: { model: string; reasoningEffort: string | null }): NonNullable<ConversationStartResult['modelSettings']> {
+  return {
+    model: response.model,
+    ...(response.reasoningEffort ? { effort: response.reasoningEffort } : {}),
+  };
 }
 
 function workspaceContains(workspace: string, cwd: string): boolean {
@@ -553,6 +725,7 @@ async function createConversationThread(
   bindings: ConversationBindings,
   input: { projectId: string; conversationId: string },
   expectedCodexThreadId: string | null,
+  initialModelSettings?: AgentModelSettings,
 ): Promise<ConversationStartResult> {
   const [context, catalog] = await Promise.all([
     business.request('project/context/read', { projectId: input.projectId }),
@@ -565,6 +738,7 @@ async function createConversationThread(
     inputSchema: tool.inputSchema,
   }));
   const started = await codex.request('thread/start', {
+    ...threadStartModelSettings(initialModelSettings),
     cwd: context.workspacePath,
     approvalPolicy: 'on-request',
     sandbox: 'read-only',
@@ -580,7 +754,13 @@ async function createConversationThread(
   });
   if (expectedCodexThreadId) bindings.forget(expectedCodexThreadId);
   bindings.remember(threadId, { projectId: input.projectId, conversationId: input.conversationId });
-  return { conversationId: input.conversationId, threadId, turns: projectThread(started.thread), access: 'active' };
+  return {
+    conversationId: input.conversationId,
+    threadId,
+    turns: projectThread(started.thread),
+    access: 'active',
+    modelSettings: projectResponseModelSettings(started),
+  };
 }
 
 function isUnmaterializedThreadError(error: unknown): boolean {
