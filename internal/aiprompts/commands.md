@@ -22,6 +22,7 @@ Renderer 只看产品语义：
 | Foundation | `foundation.read` | Rust status/catalog 聚合投影 |
 | Project | `project.open`、`project.list`、`project.read`、`project.updateBrief` | `project.open` 先经 Electron 系统目录选择器；选中本地文件夹后经 Rust business client 登记 Project |
 | Conversation | `agent.listConversations`、`agent.listProjectConversations`、`agent.listImportCandidates`、`agent.importConversation`、`agent.startConversation` | Codex 根 Thread 自动投影；Project Conversation 访问 Codex client + Rust binding |
+| Composer | `agent.composerCatalog`、`agent.pickAttachments`、`agent.listCaptureSources`、`agent.captureSource` | Electron 校验 Composer cwd，读取 Codex Plugin/协作模式目录，并独占系统文件选择、窗口捕获、临时文件和不透明 token |
 | Model | `agent.listModels`、`agent.updateThreadSettings` | Electron 校验会话 owner 后调用 Codex `model/list` 与 `thread/settings/update`；最终状态由 `thread/settings/updated` 投影 |
 | Turn | `agent.startTurn`、`agent.interrupt`、`agent.subscribe` | Codex client |
 | Catalog | 包含在 `foundation.read` | Rust business client |
@@ -33,6 +34,10 @@ Renderer 只看产品语义：
 | Deliverable | `deliverable.confirm` | Rust QA/hash 复验与 current 切换；只允许当前 GUI 用户动作 |
 
 Renderer 不得提交任意 Codex method、Rust JSON-RPC method、可执行文件、脚本路径、环境变量、provider request 或 FFmpeg argv。
+
+Composer 附件与能力使用 Main 内短生命周期 token。Renderer 只接收 `id/label/kind/previewUrl`，不接收本地路径；提交 Turn 时 Main 再按 owner 与 cwd 解析：普通文件/目录聚合为 Codex Desktop 原生 `# Files mentioned by the user` 文本引用，图片与窗口截图使用 `localImage`，音频使用 `localAudio`，Plugin 使用 `mention(plugin://...)`。普通文件/目录不得伪装成 `Mention`，Plugin 也不得退化为自由文本路径。
+
+Goal 是单次 `thread/goal/set -> turn/start`，提交后恢复默认模式；Plan mode 来自 `collaborationMode/list`，通过 `turn/start.collaborationMode` 应用并跨 Turn 保留，直到用户切换模式。Record a skill 只在 enabled `record-and-replay` Plugin 可用时显示，并复用该 Plugin 的 `defaultPrompt`，不得在 Renderer 硬编码一套 Skill runtime。
 
 Renderer 不暴露 `project.create`。`project.open` 是从 Composer 底部 `+` 菜单选择本地项目的唯一创建入口：Renderer 只提交 `profileId/language`，Electron 打开系统目录选择器；取消选择返回 `null`，选中一个目录后由 Electron 使用目录 basename 和绝对路径构造 Rust `project/create` 参数。目录路径不得经过 preload 返回 Renderer，也不得恢复自定义项目表单。
 
@@ -47,9 +52,10 @@ Renderer 不暴露 `project.create`。`project.open` 是从 Composer 底部 `+` 
 当前 Electron main 的固定 Codex allowlist：
 
 - lifecycle：`initialize`、`initialized`；
-- thread：`thread/start`、`thread/resume`、`thread/read`、`thread/list`、`thread/turns/list`、`thread/items/list`、`thread/settings/update`；
+- thread：`thread/start`、`thread/resume`、`thread/read`、`thread/list`、`thread/turns/list`、`thread/items/list`、`thread/settings/update`、`thread/goal/set`；
 - model：`model/list`；
 - turn：`turn/start`、`turn/interrupt`；
+- Composer catalog：`collaborationMode/list`、`plugin/list`；
 - skills：`skills/extraRoots/set`；
 - GUI reverse request：Command、File、Permission Approval，`item/tool/requestUserInput` 与 `mcpServer/elicitation/request`；
 - host reverse request：`item/tool/call`、ChatGPT token refresh、attestation、current time，以及去重兼容的 legacy exec/patch approval；

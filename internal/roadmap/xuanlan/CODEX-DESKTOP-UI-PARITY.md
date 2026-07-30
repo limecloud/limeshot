@@ -1,7 +1,7 @@
 # Codex Desktop 全量 UI 对齐规范
 
 状态：`current design source`
-日期：`2026-07-30`
+日期：`2026-07-31`
 
 ## 1. 目标
 
@@ -38,6 +38,14 @@ LimeShot 的桌面壳、导航、对话时间线、全部 Codex 投影、阻塞�
 | --- | --- | --- |
 | `webview/assets/app-D4iDTyKa.css` | Electron surface、全局 token、字体、toolbar、sidebar、thread、diff | `styles.css` |
 | `webview/assets/app-initial-Czet5G9g.css` | Markdown、composer utility bar、早期加载样式 | `styles.css`、`ConversationTimeline.tsx` |
+| `webview/assets/app-main-BP5-48gp.js` | Desktop shell、home、thread、projection 组合 | `App.tsx`、`extensions/production/ProductionHome.tsx` |
+| `thread-app-shell-chrome-DLtp8zjL.js` | Thread header/chrome | `App.tsx` |
+| `thread-scroll-layout-BywaziyM.js` | Thread scroll/content column | `ConversationTimeline.tsx` |
+| `local-conversation-thread-Bj5uKwgs.js` | 本地 thread 组合和状态 | `ConversationTimeline.tsx` |
+| `composer-utility-bar-Bj52tH4x.js` | Composer footer/utility actions | `ConversationComposer.tsx`、`App.tsx`、`extensions/production/ProductionHome.tsx` |
+| `composer-project-selector-D3thiXO7.js` | Project context selector | `ComposerAddMenu.tsx`、`App.tsx` |
+| `file-diff-*`、`diff-*` | Diff row、统计和展开 surface | `ConversationTimeline.tsx`、`ConversationReview.tsx` |
+| `subagent-panel-f_gsLZAq.js` | Multi-Agent secondary surface | `ConversationTimeline.tsx`、activity inspector |
 
 ### 2.3 Composer 模型菜单截图基线
 
@@ -48,14 +56,14 @@ LimeShot 的桌面壳、导航、对话时间线、全部 Codex 投影、阻塞�
 - 型号集合不是 UI 常量，必须来自 Codex `model/list`；推理强度只显示所选模型的 `supportedReasoningEfforts`。
 - 当前 Thread 设置来自 start/resume 响应和 settings notification；若当前型号不在非隐藏目录仍显示真实型号，空 effort 显示“默认”，但不能向上游补造 effort。
 - 选择 model 或 effort 后通过 Thread settings 更新，活动 Turn、只读子线程、archived/deleted/closed Thread 均不可修改。
-| `webview/assets/app-main-BP5-48gp.js` | Desktop shell、home、thread、projection 组合 | `App.tsx`、`extensions/production/ProductionHome.tsx` |
-| `thread-app-shell-chrome-DLtp8zjL.js` | Thread header/chrome | `App.tsx` |
-| `thread-scroll-layout-BywaziyM.js` | Thread scroll/content column | `ConversationTimeline.tsx` |
-| `local-conversation-thread-Bj5uKwgs.js` | 本地 thread 组合和状态 | `ConversationTimeline.tsx` |
-| `composer-utility-bar-Bj52tH4x.js` | Composer footer/utility actions | `extensions/production/ProductionHome.tsx`、`App.tsx` |
-| `composer-project-selector-D3thiXO7.js` | Project context selector | `extensions/production/ProductionHome.tsx`、`App.tsx` |
-| `file-diff-*`、`diff-*` | Diff row、统计和展开 surface | `ConversationTimeline.tsx` |
-| `subagent-panel-f_gsLZAq.js` | Multi-Agent secondary surface | `ConversationTimeline.tsx`、activity inspector |
+
+### 2.4 Composer 添加菜单与附件语义
+
+- `+` 菜单按“文件和文件夹、应用窗口截图、项目、Goal、Plan mode、Record a skill、Plugins、可用 Plugin”组织；应用名来自 Electron 可捕获窗口，不能硬编码截图中的具体应用。
+- 首页与 Thread 使用同一个 Composer、draft 和选择项 owner。选择项显示 basename/窗口名/能力名，支持逐项移除；本地绝对路径不进入 Renderer。
+- 文件/目录是 Codex 原生文件引用文本，图片/窗口截图是 `localImage`，音频是 `localAudio`，Plugin 是 `mention(plugin://...)`。Plugin catalog 只来自 `plugin/list`，不扫描开发 `.codex/skills`，也不与 product extension registry 合并。
+- Project 继续使用现有 `project.open` semantic action；Goal 是单次模式，Plan mode 跨 Turn 保留。Record a skill 只复用 enabled `record-and-replay` Plugin 的 label/default prompt，不设置独立 Renderer Skill runtime。
+- 附件或 Plugin 可在空文本下提交；Goal 必须有目标文本。成功提交后清理一次性附件/能力，Plan mode 保留，Goal 恢复默认模式。
 
 固定版本的 Activity 实现还确认了三条不能退化的事实：`reasoning` 只把 `summary` 投影到可见时间线，不投影 raw `content`；completed Tool/Search/Shell 先形成单行、可截断的 activity summary，再通过 disclosure 展开详情，`fileChange` 行则进入 Review 工作区；`commandExecution` 按上游结构化 action 拆分可读摘要，`fileChange` 使用结构化 changes snapshot，不能从 command/diff 文本重新猜测语义。
 

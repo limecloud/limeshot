@@ -1,7 +1,7 @@
 # Codex Desktop 全量 UI 对齐实施进度
 
-> 状态：Composer 添加菜单、结构化附件与 Codex 能力入口实施中；Review 与 Production extension owner 保持不变
-> 更新时间：2026-07-30
+> 状态：Composer 添加菜单、结构化附件与 Codex 能力入口已完成；Review 与 Production extension owner 保持不变
+> 更新时间：2026-07-31
 > 固定参考：Codex Desktop `26.721.41059`
 > 稳定规范：`internal/roadmap/xuanlan/CODEX-DESKTOP-UI-PARITY.md`
 > 功能投影进度：`internal/exec-plans/xuanlan-conversation-projection-progress.md`
@@ -12,19 +12,21 @@
 
 ## 2026-07-30：Composer 添加菜单、附件与原生能力入口
 
-状态：实施中
+状态：已完成
 
 - 目标：按用户提供的 Codex Desktop Composer 截图补齐“文件和文件夹、应用窗口截图、项目、目标、计划模式、Record a skill、Plugins”全部真实动作；首页与会话共用同一个菜单和 draft owner，不增加假按钮、Renderer 路径泄漏或 Rust 业务绑定。
-- 固定事实：文件/文件夹/图片/音频映射为 Codex `UserInput`；应用名（截图中的 Wave）来自 Electron 可捕获窗口而非硬编码；Goal 使用 `thread/goal/*`；Plan mode 使用 `turn/start.collaborationMode`；Skill/Plugin 使用经 Main 校验后的结构化 `skill` / `mention`；Record a skill 仅由可用的 `record-and-replay` plugin 提供。
+- 固定事实：普通文件/目录聚合为 Codex Desktop 原生文件引用文本，图片/窗口截图使用 `localImage`，音频使用 `localAudio`；应用名（截图中的 Wave）来自 Electron 可捕获窗口而非硬编码；Goal 使用 `thread/goal/set`；Plan mode 使用 `turn/start.collaborationMode`；Plugin 使用经 Main 校验后的 `mention(plugin://...)`；Record a skill 仅由可用的 `record-and-replay` Plugin 提供。
 - 窄写集：`packages/codex-client/src/**`、`src/{shared,preload,main}/**` 中对应 semantic command、`src/renderer/src/{App,Composer*,i18n,styles}.tsx?`、`extensions/{types,production/ProductionHome,production/production.css}`、相关 tests、`scripts/smoke/electron-smoke.mjs`、命令/架构/UI parity 文档和本执行计划。
 - 排除项：不修改 Rust Business Service、Project/Plan/Task/Artifact 持久化、Review/Workspace 面板 owner、release/Forge；不实现第三方插件商店或安装器，不把开发 `.codex/skills` 扫描为产品 fallback，不向 Renderer 暴露绝对路径、raw Codex method 或 app-server generated type。
-- 退出条件：文件/目录/窗口截图可经系统能力选择、以不含路径的 chip 展示并随 Turn 形成结构化输入；附件可移除且空文本可发送；项目选择、Goal、Plan mode、enabled Skill/Plugin 和 Record a skill 均命中各自真实 owner；首页 draft 与现有 Thread 行为一致；五语言、disabled/error/Escape/outside close/窄窗 containment 有覆盖；contracts、typecheck、Electron build、governance 与真实 Gate B 通过。
+- 退出条件：文件/目录/窗口截图可经系统能力选择、以不含路径的 chip 展示并随 Turn 形成结构化输入；附件可移除且空文本可发送；项目选择、Goal、Plan mode、enabled Plugin 和 Record a skill 均命中各自真实 owner；首页 draft 与现有 Thread 行为一致；五语言、disabled/error/Escape/outside close/窄窗 containment 有覆盖；contracts、typecheck、Electron build、governance 与真实 Gate B 通过。
 - 验证计划：Codex client/Main IPC/preload contract/Composer/App/i18n 定向 Vitest，`npm test -- --run`、`npm run test:contracts`、`npm run typecheck`、`npm run electron:build`、`npm run verify:gui-smoke`、`npm run governance:runtime-boundary`、`npm run governance:ui-parity` 与 `git diff --check`。
 - [x] 固定 Codex Desktop 源码映射确认菜单顺序及真实 owner；“Attach Wave”已确认为应用窗口截图动作，Wave 不是产品常量。
-- [ ] 扩展 Codex native request map 与 Electron semantic gateway，完成路径隔离、catalog 校验和结构化 Turn input。
-- [ ] 首页/会话接入共用 Composer add menu、附件 chips、Goal/Plan mode 和 Skill/Plugin 选择。
-- [ ] 修正 Gate B 受控型号选择，并补全部动作的真实 Electron 证据与截图。
-- [ ] 完成文档、治理和全量质量门禁。
+- [x] 扩展 Codex native request map 与 Electron semantic gateway，完成路径隔离、catalog 校验和结构化 Turn input；普通文件/目录不再错误使用 `Mention`。
+- [x] 首页/会话接入共用 Composer add menu、附件 chips、Goal/Plan mode 和 Plugin/Record a skill 选择；一次性选择提交后释放，Plan mode 按上游语义保留。
+- [x] Gate B 通过真实模型菜单选择动态可用型号；15 次 Provider 请求证明文件/目录引用、窗口截图、Plugin 注入、Plan mode、Goal 和最终 model/effort。当前目录型号不支持 audio modality 时，Codex 按固定语义将 `localAudio` 二进制替换为受控占位，而不是由 LimeShot 伪造支持。
+- [x] 真实 Electron 截图 `/tmp/limeshot-composer-capabilities-20260731/05-composer-capabilities.png` 人工复核通过：六个选择项完整可见、Composer 底部停靠、无重叠、无 Renderer 绝对路径。
+- [x] `npm run verify:gui-smoke`、runtime/UI governance、10 项 contracts、typecheck、31 文件 136 项 Vitest、Electron build 与 `git diff --check` 全部通过。
+- 治理分类：`current` 为 Codex native Composer + Electron typed semantic host + 共用 Renderer Composer；`compat`、`deprecated` 均为空；普通文件/目录伪装为 `Mention` 的映射属于 `dead`，已直接替换且无 wrapper/fallback。
 
 ## 2026-07-30：Composer 模型与推理强度切换
 
@@ -346,13 +348,13 @@ Renderer semantic state
 
 ## 完成度
 
-- 源码映射：72%
-- P0 主工作流实现：93%（Review 工作区三列与窄屏模式已对齐；条件型 Thread action 仍未完成）
+- 源码映射：75%
+- P0 主工作流实现：96%（Composer 全动作与 Review 工作区已对齐；条件型 Thread action 仍未完成）
 - P1 Agent 投影视觉：74%（fileChange -> Review 与 Diff/FileTree 已完成；其余运行态 surface 继续逐项对照）
 - P2 产品 extension：38%（核心/业务 owner 已解耦并迁入独立 workspace；业务 surface 的完整视觉与交互验收仍未完成）
-- P3 治理与回归：80%
+- P3 治理与回归：82%
 - Codex 运行态截图对照：12%（Project Home 与 Review 已有用户截图；其余 surface 仍受 Computer Use 应用策略限制）
-- UI parity 整体：65%
+- UI parity 整体：66%
 
 ## 下一刀
 

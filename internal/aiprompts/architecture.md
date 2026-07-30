@@ -1,7 +1,7 @@
 # LimeShot 全局架构
 
 状态：`current / v1 implementation`
-更新日期：`2026-07-30`
+更新日期：`2026-07-31`
 
 ## 唯一产品链
 
@@ -67,12 +67,12 @@ Product Extension Host
             -> Brief / Plan / Execution / Artifact / Deliverable
 ```
 
-- 核心壳只拥有窗口布局、导航、Codex 会话投影、阻塞交互、Composer、模型/推理强度选择、Review 工作区和独立 Activity 浮层。`ConversationModelMenu` 只消费 typed semantic API，目录来自 Codex `model/list`，设置通过 `thread/settings/update` 并由 `thread/settings/updated` 收敛；Rust Business Service 与产品 extension 不拥有模型状态。Review 默认关闭；时间线 `fileChange` 行与工具栏“变更”只发出打开意图，文件选择、文件树和 diff 仅由 `ConversationReview` 拥有。Review 不承载 Environment/Runtime 状态，更不得承载 Project、Brief、Plan、Task、Artifact 或 Deliverable 业务界面。
+- 核心壳只拥有窗口布局、导航、Codex 会话投影、阻塞交互、Composer、模型/推理强度选择、Review 工作区和独立 Activity 浮层。`ConversationModelMenu` 只消费 typed semantic API，目录来自 Codex `model/list`，设置通过 `thread/settings/update` 并由 `thread/settings/updated` 收敛；Rust Business Service 与产品 extension 不拥有模型状态。`ComposerHost` 独占系统文件/目录选择、应用窗口捕获和本地路径，Renderer 只持有不透明附件/能力 token；文件引用、`localImage`、`localAudio`、`plugin://` Mention、Goal 与 Plan mode 仅在 Main 校验后进入 Codex。Review 默认关闭；时间线 `fileChange` 行与工具栏“变更”只发出打开意图，文件选择、文件树和 diff 仅由 `ConversationReview` 拥有。Review 不承载 Environment/Runtime 状态，更不得承载 Project、Brief、Plan、Task、Artifact 或 Deliverable 业务界面。
 - `src/renderer/src/extensions/{types,registry,ExtensionHost}.tsx?` 是静态可信 extension 装配边界；它只定义宿主上下文和选择组件，不拥有业务状态、协议或后端。
 - `src/renderer/src/extensions/production/**` 是当前生产业务 UI 的唯一 owner，拥有独立 Home、Workspace、业务文案和样式。业务编辑打开独立主工作区，不挤入核心 Review 或 Activity surface。
 - 核心可持有 `ProjectSummary` 作为侧栏导航和 Conversation scope 的不透明摘要；Project detail、Profile、Brief、Plan、Execution 与媒体业务状态必须在 production extension 内加载和投影。
 - extension 不得调用 raw Codex/Rust method，不得读取文件路径或启动进程；所有能力仍经 preload typed gateway、Electron main 和既有后端 owner。
-- 当前不建设可下载第三方插件、动态代码加载、权限沙箱或独立插件协议。新增产品 extension 只能显式注册并随应用构建，直到真实需求证明需要更复杂的插件系统。
+- Codex `plugin/list` 只为当前 Turn 提供上游能力 Mention，不等于 Renderer product extension。当前不建设可下载第三方插件、动态代码加载、权限沙箱或独立插件协议；新增产品 extension 只能显式注册并随应用构建，直到真实需求证明需要更复杂的插件系统。
 
 ## Agent Runtime Non-Reimplementation Contract
 
@@ -225,6 +225,7 @@ sequenceDiagram
 - [x] Renderer 只消费 semantic projection。
 - [x] Renderer 核心壳与 production extension 已分离；核心 Review 只拥有 Diff 与文件树，Activity 由对话内独立浮层拥有。
 - [x] 模型目录与 Thread model/effort 设置归 Codex；Renderer 只走 typed semantic API，Rust 业务层与 extension 不绑定该能力。
+- [x] Composer 文件/目录/图片/音频/窗口截图、Goal、Plan mode 与 Plugin 只走 typed semantic API -> Electron Main -> Codex；Renderer 无路径、raw method 或第二套 Skill/Plugin runtime。
 - [x] Project、Profile、Brief、Plan、Execution、Artifact 与 Deliverable 业务 UI 只由 `extensions/production/**` 拥有，项目编辑进入独立 extension workspace。
 - [x] Extension host 采用随应用构建的静态可信 registry；不引入动态第三方代码加载、第二套协议或第二个业务后端。
 - [x] 不引入 Tauri、生产 mock、系统 PATH fallback或参考应用资源依赖。
