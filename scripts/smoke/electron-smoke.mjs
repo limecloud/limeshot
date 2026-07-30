@@ -112,7 +112,8 @@ try {
     const trigger = document.querySelector('[data-testid="composer-model-trigger"]');
     return Boolean(trigger?.getAttribute('data-model') && trigger?.getAttribute('data-effort'));
   });
-  await selectAlternateDraftModel(page);
+  const gateBDirectToolModel = process.platform === 'win32' ? 'gpt-5.5' : undefined;
+  await selectAlternateDraftModel(page, { finalModel: gateBDirectToolModel });
   const initialDraftSettings = await page.getByTestId('composer-model-trigger').evaluate((trigger) => ({
     model: trigger.getAttribute('data-model') ?? '',
     effort: trigger.getAttribute('data-effort') ?? '',
@@ -1379,7 +1380,7 @@ try {
     providerRequestCount: requests.length === 15,
     dynamicToolAdvertised,
     planToolAdvertised,
-    responsesLiteCodeMode,
+    toolModeMatchesPlatform: gateBDirectToolModel ? !responsesLiteCodeMode : responsesLiteCodeMode,
     projectToolOutputRouted,
     planToolOutputRouted,
     shellOutputRouted,
@@ -1783,7 +1784,7 @@ async function exerciseComposerCapabilities(page, electronApplication, {
   };
 }
 
-async function selectAlternateDraftModel(page) {
+async function selectAlternateDraftModel(page, { finalModel } = {}) {
   const trigger = page.getByTestId('composer-model-trigger');
   await trigger.click();
   const settingsMenu = page.getByRole('menu', {
@@ -1804,6 +1805,22 @@ async function selectAlternateDraftModel(page) {
       .querySelector('[data-testid="composer-model-trigger"]')
       ?.getAttribute('data-model') === expected,
     model,
+  );
+  if (!finalModel) return;
+
+  // Codex 0.145.0 code mode does not register nested exec_command on Windows.
+  await trigger.click();
+  await settingsMenu.getByRole('menuitem').first().click();
+  const finalOption = page.getByRole('menu', { name: '模型', exact: true })
+    .locator(`[role="menuitemradio"][data-model="${finalModel}"]`);
+  if (await finalOption.count() !== 1) throw new Error(`Gate B could not select final draft model ${finalModel}`);
+  await finalOption.click();
+  await settingsMenu.waitFor({ state: 'detached' });
+  await page.waitForFunction(
+    (expected) => document
+      .querySelector('[data-testid="composer-model-trigger"]')
+      ?.getAttribute('data-model') === expected,
+    finalModel,
   );
 }
 
