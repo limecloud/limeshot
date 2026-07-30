@@ -1545,6 +1545,10 @@ try {
 } catch (error) {
   const pages = application?.windows() ?? [];
   const page = pages[0];
+  const providerRequests = fixture.requests();
+  const shellToolOutput = providerRequests
+    .flatMap((request) => Array.isArray(request.input) ? request.input : [])
+    .find((item) => item?.call_id === 'gate-b-shell-1');
   const renderer = page ? await page.evaluate(() => ({
     body: document.body.innerText,
     composerDisabled: (document.querySelector('.composer-field textarea'))?.disabled,
@@ -1552,8 +1556,8 @@ try {
   })).catch((diagnosticError) => ({ diagnosticError: String(diagnosticError) })) : undefined;
   process.stderr.write(`[gate-b-diagnostics] ${JSON.stringify({
     error: error instanceof Error ? error.message : String(error),
-    providerRequestCount: fixture.requests().length,
-    providerRequests: fixture.requests().map((request) => ({
+    providerRequestCount: providerRequests.length,
+    providerRequests: providerRequests.map((request) => ({
       model: request.model,
       toolNames: responseToolNames(request),
       hasProjectRead: JSON.stringify(responseTools(request)).includes('project_read'),
@@ -1561,6 +1565,7 @@ try {
       hasToolOutput: JSON.stringify(request.input ?? []).includes('function_call_output')
         || JSON.stringify(request.input ?? []).includes('custom_tool_call_output'),
     })),
+    shellToolOutput,
     renderer,
   })}\n`);
   throw error;
