@@ -29,6 +29,10 @@ const version = spawnSync(codexBinary, ['--version'], { encoding: 'utf8' });
 if (version.status !== 0 || version.stdout.trim() !== `codex-cli ${manifest.version}`) {
   throw new Error(`Codex 版本不匹配: ${version.stdout.trim() || version.stderr.trim()}`);
 }
+const shellOutputCommand = `node -e "console.log('gate-b-shell-output')"`;
+const rightTerminalCommand = `node -e "console.log('gate-b-terminal-ready')"`;
+const bottomTerminalCommand = `node -e "console.log('gate-b-bottom-terminal-ready')"`;
+const interruptCommand = `node -e "console.log('gate-b-interrupt-running');setTimeout(process.exit,30000)"`;
 
 const fixture = await startResponsesFixture();
 const userData = await mkdtemp(join(tmpdir(), 'limeshot-gate-b-'));
@@ -306,7 +310,7 @@ try {
   await rightTerminal.locator('.xterm-helper-textarea').waitFor({ state: 'attached', timeout: 20_000 });
   await rightTabs.getByRole('tab').filter({ hasText: '@' }).waitFor({ timeout: 20_000 });
   await rightTerminal.click({ position: { x: 48, y: 48 } });
-  await page.keyboard.insertText("printf 'gate-b-terminal-%s\\n' ready");
+  await page.keyboard.insertText(rightTerminalCommand);
   await page.keyboard.press('Enter');
   await rightTerminal.locator('.xterm-rows', { hasText: 'gate-b-terminal-ready' }).waitFor({ timeout: 20_000 });
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-terminal-workspace.png') });
@@ -413,7 +417,7 @@ try {
   const bottomTerminal = page.getByTestId('workspace-bottom-terminal');
   await bottomTerminal.locator('.xterm-helper-textarea').waitFor({ state: 'attached', timeout: 20_000 });
   await bottomTerminal.click({ position: { x: 48, y: 48 } });
-  await page.keyboard.insertText("printf 'gate-b-bottom-terminal-%s\\n' ready");
+  await page.keyboard.insertText(bottomTerminalCommand);
   await page.keyboard.press('Enter');
   await bottomTerminal.locator('.xterm-rows', { hasText: 'gate-b-bottom-terminal-ready' }).waitFor({ timeout: 20_000 });
   await bottomTabs.getByRole('button', { name: '打开新标签页' }).click();
@@ -627,7 +631,7 @@ try {
 
   await composer.fill('Run the interrupt projection.');
   await composer.press('Enter');
-  await page.locator('.agent-item[data-item-type="commandExecution"][data-status="inProgress"]', { hasText: 'sleep 30' }).waitFor({ timeout: 60_000 });
+  await page.locator('.agent-item[data-item-type="commandExecution"][data-status="inProgress"]', { hasText: 'gate-b-interrupt-running' }).waitFor({ timeout: 60_000 });
   await page.getByTitle('中断当前回复').click();
   await page.locator('.agent-turn[data-status="interrupted"]').waitFor({ timeout: 20_000 });
   const interruptVisible = await page.locator('.agent-turn[data-status="interrupted"]').count() === 1;
@@ -2157,8 +2161,8 @@ function gateBResponseEvents(index, requestBody) {
     const codeModeExec = codeModeExecTool(requestBody);
     const commandTool = codeModeExec ? requireCodeModeTool(requestBody, ['exec_command']) : requireTool(requestBody, ['exec_command', 'shell_command']);
     const commandArguments = commandTool === 'exec_command'
-      ? { cmd: "printf 'gate-b-shell-output\\n'", yield_time_ms: 1_000 }
-      : { command: "printf 'gate-b-shell-output\\n'", timeout_ms: 5_000 };
+      ? { cmd: shellOutputCommand, yield_time_ms: 1_000 }
+      : { command: shellOutputCommand, timeout_ms: 5_000 };
     const toolEvents = codeModeExec
       ? [
         {
@@ -2216,12 +2220,10 @@ function gateBResponseEvents(index, requestBody) {
   if (index === 5) {
     const patch = '*** Begin Patch\n*** Add File: gate-b-projection.txt\n+Gate B diff projection\n*** End Patch\n';
     if (codeModeExecTool(requestBody)) {
-      const commandTool = requireCodeModeTool(requestBody, ['exec_command']);
-      const command = `apply_patch <<'PATCH'\n${patch}PATCH\n`;
       return [
         responseCreated('gate-b-response-5'),
         customToolCall('gate-b-patch-1', 'exec', [
-          `const patchResult = await tools.${commandTool}({ cmd: ${JSON.stringify(command)} });`,
+          `const patchResult = await tools.apply_patch(${JSON.stringify(patch)});`,
           'text(JSON.stringify(patchResult));',
         ].join('\n')),
         responseCompleted('gate-b-response-5'),
@@ -2235,13 +2237,7 @@ function gateBResponseEvents(index, requestBody) {
         responseCompleted('gate-b-response-5'),
       ];
     }
-    const commandTool = requireTool(requestBody, ['exec_command', 'shell_command']);
-    const command = `apply_patch <<'PATCH'\n${patch}PATCH\n`;
-    return [
-      responseCreated('gate-b-response-5'),
-      functionCall('gate-b-patch-1', commandTool, commandTool === 'exec_command' ? { cmd: command } : { command }),
-      responseCompleted('gate-b-response-5'),
-    ];
+    throw new Error(`Codex apply_patch was not advertised: ${JSON.stringify(responseToolNames(requestBody))}`);
   }
   if (index === 6) {
     if (codeModeExecTool(requestBody)) {
@@ -2356,7 +2352,7 @@ function gateBResponseEvents(index, requestBody) {
       return [
         responseCreated('gate-b-response-10'),
         customToolCall('gate-b-interrupt-1', 'exec', [
-          `const commandResult = await tools.${commandTool}({ cmd: 'sleep 30', yield_time_ms: 1000 });`,
+          `const commandResult = await tools.${commandTool}({ cmd: ${JSON.stringify(interruptCommand)}, yield_time_ms: 1000 });`,
           'text(JSON.stringify(commandResult));',
         ].join('\n')),
         responseCompleted('gate-b-response-10'),
@@ -2366,8 +2362,8 @@ function gateBResponseEvents(index, requestBody) {
     return [
       responseCreated('gate-b-response-10'),
       functionCall('gate-b-interrupt-1', commandTool, commandTool === 'exec_command'
-        ? { cmd: 'sleep 30', yield_time_ms: 1_000 }
-        : { command: 'sleep 30', timeout_ms: 30_000 }),
+        ? { cmd: interruptCommand, yield_time_ms: 1_000 }
+        : { command: interruptCommand, timeout_ms: 30_000 }),
       responseCompleted('gate-b-response-10'),
     ];
   }
