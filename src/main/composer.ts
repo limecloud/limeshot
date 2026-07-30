@@ -141,21 +141,24 @@ export class ComposerHost {
     const uniqueAttachmentIds = unique(attachmentIds);
     const uniqueCapabilityIds = unique(capabilityIds);
     if (uniqueAttachmentIds.length > 32 || uniqueCapabilityIds.length > 16) throw new Error('Composer 选择项过多');
-    const attachmentInputs = uniqueAttachmentIds.map((attachmentId): CodexUserInput => {
+    const fileReferences: Array<{ label: string; path: string }> = [];
+    const attachmentInputs = uniqueAttachmentIds.flatMap((attachmentId): CodexUserInput[] => {
       const attachment = this.attachments.get(attachmentId);
       if (!attachment || attachment.ownerId !== id) throw new Error('附件已失效，请重新选择');
       if (attachment.kind === 'image' || attachment.kind === 'appScreenshot') {
-        return { type: 'localImage', path: attachment.path };
+        return [{ type: 'localImage', path: attachment.path }];
       }
-      if (attachment.kind === 'audio') return { type: 'localAudio', path: attachment.path };
-      return { type: 'mention', name: basename(attachment.path), path: attachment.path };
+      if (attachment.kind === 'audio') return [{ type: 'localAudio', path: attachment.path }];
+      fileReferences.push({ label: basename(attachment.path), path: attachment.path });
+      return [];
     });
     const capabilityInputs = uniqueCapabilityIds.map((capabilityId): CodexUserInput => {
       const capability = this.capabilities.get(capabilityId);
       if (!capability || capability.ownerId !== id || capability.cwd !== cwd) throw new Error('插件能力已失效，请重新选择');
       return capability.input;
     });
-    return [...attachmentInputs, ...capabilityInputs];
+    const fileInput = fileReferences.length > 0 ? [fileReferenceInput(fileReferences)] : [];
+    return [...fileInput, ...attachmentInputs, ...capabilityInputs];
   }
 
   releaseInputs(owner: WebContents, attachmentIds: string[], capabilityIds: string[]): void {
@@ -195,6 +198,11 @@ function imagePreview(path: string): string | undefined {
   const image = nativeImage.createFromPath(path);
   if (image.isEmpty()) return undefined;
   return image.resize({ width: 96, quality: 'good' }).toDataURL();
+}
+
+function fileReferenceInput(files: Array<{ label: string; path: string }>): CodexUserInput {
+  const references = files.map((file) => `\n## ${file.label}: ${file.path}\n`).join('');
+  return { type: 'text', text: `# Files mentioned by the user:\n${references}`, text_elements: [] };
 }
 
 function ownerId(owner: WebContents): number {

@@ -1,6 +1,6 @@
 ## LimeShot v0.5.0
 
-发布日期：2026-07-30
+发布日期：2026-07-31
 
 ### Workspace 桌面体验
 
@@ -13,6 +13,7 @@
 ### 对话、模型与 Review
 
 - Composer 增加 Codex 原生模型和推理强度选择。目录来自 `model/list`，更新通过 `thread/settings/update`，最终选中态由 `thread/settings/updated` 投影，不在 Renderer 或 Rust 业务层维护第二份模型状态。
+- Composer 的文件/文件夹引用、音频、应用窗口截图、Plugin、Goal 与 Plan mode 已接入真实 Turn；普通文件以 Codex 文本引用发送，图片与音频继续使用上游原生 message part，Renderer 不暴露本机绝对路径。
 - 模型菜单覆盖动态目录、每模型推理强度、加载/重试、只读和 active Turn 禁用、窄窗 containment、Escape 与 outside close；当前型号未出现在可见目录时仍保留上游真实值。
 - Review 重构为独立工作区：对话列之外使用大面积 Diff 和文件树，时间线 File Change 与工具栏变更入口都打开同一 owner，不再混入 Environment、Runtime 或业务检查器。
 - Conversation Timeline、Composer、Activity 与 Workspace 面板继续消费 Codex Thread / Turn / Item canonical projection，不复制 history 或从 delta 合成终态。
@@ -27,6 +28,7 @@
 ### 平台与打包
 
 - 新增 `@xterm/xterm`、`@xterm/addon-fit` 和 `node-pty`，并在安装、release build 与 Forge ASAR 中准备当前 Electron ABI 对应的原生 PTY 资源。
+- `node-pty` 的 `spawn-helper` 权限准备限定在实际使用该 helper 的 macOS；Linux quality runner 不再误判资源缺失，Windows 继续使用随包提供的 ConPTY/WinPTY 资源。
 - 继续发布 macOS Apple Silicon DMG/ZIP 与 Windows x64 Squirrel Setup EXE/NuGet/`RELEASES`，正式资产只由 GitHub Actions 构建。
 - 两个平台继续固定 OpenAI 官方 Codex `0.145.0`，并校验 archive、executable、版本输出和包内 companion binaries。
 - GitHub Actions 只有在质量门禁、macOS/Windows 原生 Gate B 和全部打包资产成功后才发布 Release，并生成统一 `SHA256SUMS.txt`。
@@ -41,7 +43,7 @@
 ### 发布验证
 
 - 本地候选必须通过版本、资源、类型、协议、完整 Vitest、Rust workspace、Electron release build 和真实 Electron Gate B。
-- Gate B 必须证明模型设置、Workspace 面板、Review/Production owner、Codex/Rust 双子进程、动态工具、历史恢复和业务终态仍在同一真实 Electron 主链。
+- Gate B 必须证明模型设置、Composer 文件/媒体/Plugin/Goal/Plan mode、Workspace 面板、Review/Production owner、Codex/Rust 双子进程、动态工具、历史恢复和业务终态仍在同一真实 Electron 主链。
 - macOS/Windows 平台构建、原生 PTY 与正式资产以本版本 GitHub Actions 结果为准；本地包不上传为 Release 资产。
 
 **完整变更**：`v0.4.0` -> `v0.5.0`

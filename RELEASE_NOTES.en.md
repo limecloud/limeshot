@@ -1,6 +1,6 @@
 ## LimeShot v0.5.0
 
-Release date: 2026-07-30
+Release date: 2026-07-31
 
 ### Workspace desktop experience
 
@@ -13,6 +13,7 @@ Release date: 2026-07-30
 ### Conversations, models, and Review
 
 - Adds native Codex model and reasoning-effort selection to the Composer. The catalog comes from `model/list`, updates use `thread/settings/update`, and final state comes from `thread/settings/updated`; neither the Renderer nor Rust business layer stores a second model state.
+- Connects Composer file/folder references, audio, application-window captures, Plugins, Goal, and Plan mode to real Turns. Regular files are sent as Codex text references while images and audio keep their native upstream message parts, without exposing absolute local paths in the Renderer.
 - Covers dynamic model catalogs, per-model efforts, loading/retry, read-only and active-Turn disablement, narrow-window containment, Escape, and outside close. An active upstream model remains visible even when absent from the non-hidden catalog.
 - Rebuilds Review as an independent workspace with a large Diff surface and file tree beside the conversation. Timeline File Change rows and the toolbar changes action open the same owner instead of mixing Environment, Runtime, or business inspectors into Review.
 - Keeps Conversation Timeline, Composer, Activity, and Workspace panels on Codex Thread / Turn / Item canonical projections without copying history or synthesizing terminal state from deltas.
@@ -27,6 +28,7 @@ Release date: 2026-07-30
 ### Platform and packaging
 
 - Adds `@xterm/xterm`, `@xterm/addon-fit`, and `node-pty`, preparing native PTY resources for the current Electron ABI during install, release builds, and Forge ASAR packaging.
+- Limits `node-pty` `spawn-helper` permission preparation to macOS, where that helper is used. Linux quality runners no longer report a false missing-resource failure, while Windows continues to use packaged ConPTY/WinPTY resources.
 - Continues macOS Apple Silicon DMG/ZIP and Windows x64 Squirrel Setup EXE/NuGet/`RELEASES` distribution, with official assets built only by GitHub Actions.
 - Continues to pin official OpenAI Codex `0.145.0` on both platforms and verifies the archive, executable, version output, and packaged companion binaries.
 - Publishes only after quality gates, native macOS/Windows Gate B runs, and all packaged assets succeed, then generates a unified `SHA256SUMS.txt`.
@@ -41,7 +43,7 @@ Release date: 2026-07-30
 ### Release verification
 
 - The local candidate must pass version, resource, type, protocol, full Vitest, Rust workspace, Electron release build, and real Electron Gate B checks.
-- Gate B must prove model settings, Workspace panels, Review/Production ownership, Codex/Rust child processes, dynamic tools, history recovery, and business terminal states remain on the same real Electron path.
+- Gate B must prove model settings, Composer file/media/Plugin/Goal/Plan mode capabilities, Workspace panels, Review/Production ownership, Codex/Rust child processes, dynamic tools, history recovery, and business terminal states remain on the same real Electron path.
 - macOS/Windows builds, native PTY behavior, and official assets are verified by this release's GitHub Actions run. Local packages are not uploaded as Release assets.
 
 **Full changes**: `v0.4.0` -> `v0.5.0`

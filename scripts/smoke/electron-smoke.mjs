@@ -45,6 +45,8 @@ const projectName = 'Gate B project';
 const openedProjectName = 'opened-project';
 const openedProjectPath = join(userData, openedProjectName);
 const openedProjectNestedPath = join(openedProjectPath, 'nested-workspace');
+const composerFilePath = join(openedProjectPath, 'composer-attachment.txt');
+const composerFolderPath = join(openedProjectPath, 'composer-folder');
 const screenshotDir = process.env.LIMESHOT_SMOKE_SCREENSHOT_DIR;
 let application;
 
@@ -54,10 +56,14 @@ try {
   await writeFile(join(workspace, 'AGENTS.md'), '# Gate B Workspace\n\nReal Files panel markdown preview.\n', 'utf8');
   await writeFile(join(workspace, 'src', 'fixture.txt'), 'gate-b-files-ready\n', 'utf8');
   await mkdir(openedProjectNestedPath, { recursive: true });
+  await mkdir(composerFolderPath, { recursive: true });
+  await writeFile(composerFilePath, 'gate-b-composer-file-ready\n', 'utf8');
+  await writeFile(join(composerFolderPath, 'folder-context.txt'), 'gate-b-composer-folder-ready\n', 'utf8');
   await writeMcpFixture(mcpFixturePath);
   await writeWaveFixture(sourceAssetPath);
   compileFfprobeFixture(ffprobeFixture);
   compileFfmpegFixture(ffmpegFixture);
+  await writeGateBPlugins(codexHome, openedProjectPath);
   await writeCodexConfig(codexHome, fixture.baseUrl, mcpFixturePath);
   const openedProjectHistory = await Promise.all([
     seedCodexExecHistory({
@@ -100,6 +106,7 @@ try {
     const trigger = document.querySelector('[data-testid="composer-model-trigger"]');
     return Boolean(trigger?.getAttribute('data-model') && trigger?.getAttribute('data-effort'));
   });
+  await selectAlternateDraftModel(page);
   const initialDraftSettings = await page.getByTestId('composer-model-trigger').evaluate((trigger) => ({
     model: trigger.getAttribute('data-model') ?? '',
     effort: trigger.getAttribute('data-effort') ?? '',
@@ -1140,6 +1147,13 @@ try {
   await page.locator('[data-testid="agent-panel"][data-agent-state="ready"]').waitFor({ timeout: 60_000 });
   await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Opened project complete' }).waitFor({ timeout: 60_000 });
   await page.locator('.agent-turn[data-status="completed"]', { hasText: 'Opened project complete' }).waitFor({ timeout: 60_000 });
+  const composerCapabilitiesEvidence = await exerciseComposerCapabilities(page, application, {
+    filePath: composerFilePath,
+    folderPath: composerFolderPath,
+    audioPath: sourceAssetPath,
+    privateRoot: userData,
+    screenshotDirectory: screenshotDir,
+  });
   const modelSettingsEvidence = await exerciseModelSettings(page, screenshotDir);
   const openedConversationId = await page.getByTestId('agent-panel').getAttribute('data-conversation-id');
   const openedThreadId = await page.getByTestId('agent-panel').getAttribute('data-thread-id');
@@ -1236,6 +1250,8 @@ try {
   const userInputOutputRequest = JSON.stringify(requests[8] ?? {});
   const standaloneRequest = JSON.stringify(requests[11] ?? {});
   const openedProjectRequest = JSON.stringify(requests[12] ?? {});
+  const composerPlanRequest = JSON.stringify(requests[13] ?? {});
+  const composerGoalRequest = JSON.stringify(requests[14] ?? {});
   const evidence = await page.evaluate(() => ({
     source: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('data-runtime-source'),
     runtimeTitle: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('title') ?? '',
@@ -1270,6 +1286,19 @@ try {
     && userInputOutputRequest.includes('confirm_projection');
   const standaloneExcludedBusinessTools = !standaloneRequest.includes('project_read') && !standaloneRequest.includes('plan_create');
   const openedProjectAdvertisedBusinessTools = openedProjectRequest.includes('project_read') && openedProjectRequest.includes('plan_create');
+  const composerProviderEvidence = {
+    fileReferenceVisible: composerPlanRequest.includes('# Files mentioned by the user:')
+      && composerPlanRequest.includes(composerFilePath)
+      && composerPlanRequest.includes(composerFolderPath),
+    audioAttached: composerPlanRequest.includes('<audio name=')
+      && (composerPlanRequest.includes('data:audio/wav;base64,')
+        || composerPlanRequest.includes('audio content omitted because you do not support audio input')),
+    appScreenshotAttached: composerPlanRequest.includes('<image name=') && composerPlanRequest.includes('data:image/png;base64,'),
+    pluginInjected: composerPlanRequest.includes('Gate B Documents')
+      && composerPlanRequest.includes('gate-b-docs:document-context'),
+    planModeApplied: composerPlanRequest.includes('Plan mode') || composerPlanRequest.includes('plan mode'),
+    goalTurnReachedProvider: composerGoalRequest.includes('Keep Composer capabilities verified'),
+  };
   const draftModelApplied = requests[0]?.model === initialDraftSettings.model
     && requests[0]?.reasoning?.effort === initialDraftSettings.effort;
   const approvedPlanPersisted = semanticEvidence.plans.plans.some((plan) => plan.state === 'approved' && plan.approvedBy === 'user');
@@ -1341,7 +1370,7 @@ try {
     runtimePid: evidence.runtimeTitle.includes('PID'),
     toolActivityVisible,
     assistantVisible: assistantVisibleBeforeExtension,
-    providerRequestCount: requests.length === 13,
+    providerRequestCount: requests.length === 15,
     dynamicToolAdvertised,
     planToolAdvertised,
     responsesLiteCodeMode,
@@ -1352,6 +1381,8 @@ try {
     mcpOutputRouted,
     userInputOutputRouted,
     draftModelApplied,
+    composerCapabilities: Object.values(composerCapabilitiesEvidence).every(Boolean),
+    composerProvider: Object.values(composerProviderEvidence).every(Boolean),
     modelSettings: Object.values(modelSettingsEvidence).every(Boolean),
     conversationComposer: Object.values(conversationComposerEvidence).every(Boolean),
     environmentMenu: Object.values(environmentMenuEvidence).every(Boolean),
@@ -1416,6 +1447,8 @@ try {
       projectionDetailEvidence,
       projectionBoundaryParityEvidence,
       modelSettingsEvidence,
+      composerCapabilitiesEvidence,
+      composerProviderEvidence,
       conversationComposerEvidence,
       initialDraftSettings,
       environmentMenuEvidence,
@@ -1445,6 +1478,8 @@ try {
     patchOutputRouted,
     mcpOutputRouted,
     userInputOutputRouted,
+    composerCapabilitiesEvidence,
+    composerProviderEvidence,
     modelSettingsEvidence,
     conversationComposerEvidence,
     initialDraftSettings,
@@ -1632,6 +1667,132 @@ async function exerciseModelSettings(page, screenshotDirectory) {
   };
 }
 
+async function exerciseComposerCapabilities(page, electronApplication, {
+  filePath,
+  folderPath,
+  audioPath,
+  privateRoot,
+  screenshotDirectory,
+}) {
+  const composer = page.locator('.composer-field textarea');
+  const addButton = page.getByRole('button', { name: '添加', exact: true });
+  const openMenu = async () => {
+    await addButton.click();
+    const menu = page.getByTestId('composer-add-menu');
+    await menu.waitFor({ timeout: 20_000 });
+    return menu;
+  };
+
+  let menu = await openMenu();
+  await menu.getByRole('menuitem', { name: 'Record a skill' }).waitFor({ timeout: 20_000 });
+  const mainMenuText = await menu.innerText();
+  const menuContents = ['文件和文件夹', '截取应用窗口', '项目', 'Goal', 'Plan mode', 'Record a skill', 'Plugins', 'Gate B Documents']
+    .every((label) => mainMenuText.includes(label));
+  await menu.getByRole('menuitem', { name: 'Record a skill' }).click();
+  await composer.waitFor({ timeout: 20_000 });
+  const recordSkillPrefilled = (await composer.inputValue()) === 'Record a reusable skill from this workflow.';
+  await page.getByTestId('composer-selections').locator('.composer-selection-chip button').click();
+  await composer.fill('');
+
+  await electronApplication.evaluate(({ dialog }, paths) => {
+    globalThis.__limeshotComposerDialogCalls = [];
+    dialog.showOpenDialog = async (_parent, rawOptions) => {
+      const options = rawOptions ?? _parent;
+      const properties = Array.isArray(options?.properties) ? options.properties : [];
+      const selection = properties.includes('openDirectory') ? 'folder' : 'files';
+      globalThis.__limeshotComposerDialogCalls.push(selection);
+      return {
+        canceled: false,
+        filePaths: selection === 'folder' ? [paths.folderPath] : [paths.filePath, paths.audioPath],
+        bookmarks: [],
+      };
+    };
+  }, { filePath, folderPath, audioPath });
+
+  menu = await openMenu();
+  await menu.getByRole('menuitem', { name: '文件和文件夹' }).click();
+  await menu.getByRole('menuitem', { name: '文件', exact: true }).click();
+  await page.getByTestId('composer-selections').waitFor({ timeout: 20_000 });
+  menu = await openMenu();
+  await menu.getByRole('menuitem', { name: '文件和文件夹' }).click();
+  await menu.getByRole('menuitem', { name: '文件夹', exact: true }).click();
+
+  menu = await openMenu();
+  await menu.getByRole('menuitem', { name: '截取应用窗口' }).click();
+  const captureSource = menu.locator('.composer-capture-source').first();
+  await captureSource.waitFor({ timeout: 20_000 });
+  const captureSourceLabel = (await captureSource.innerText()).trim();
+  await captureSource.click();
+
+  menu = await openMenu();
+  await menu.getByRole('menuitem', { name: /Gate B Documents/ }).click();
+  menu = await openMenu();
+  await menu.getByRole('menuitem', { name: /Plan mode/ }).click();
+  const selections = page.getByTestId('composer-selections');
+  const selectionText = await selections.innerText();
+  const selectionCount = await selections.locator('.composer-selection-chip').count();
+  const rendererPathsHidden = !selectionText.includes(privateRoot) && !selectionText.includes(filePath) && !selectionText.includes(folderPath);
+  if (screenshotDirectory) await page.screenshot({ path: join(screenshotDirectory, '05-composer-capabilities.png') });
+
+  await composer.fill('Exercise Composer attachments and plugin in Plan mode.');
+  await composer.press('Enter');
+  await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Composer plan capability complete' }).waitFor({ timeout: 60_000 });
+  await page.locator('.agent-turn[data-status="completed"]', { hasText: 'Composer plan capability complete' }).waitFor({ timeout: 60_000 });
+  const planSelectionText = await selections.innerText();
+  const transientSelectionsClearedAfterPlan = await selections.locator('.composer-selection-chip').count() === 1
+    && planSelectionText.includes('Plan mode')
+    && await composer.inputValue() === '';
+
+  menu = await openMenu();
+  await menu.getByRole('menuitem', { name: /Goal/ }).click();
+  await composer.fill('Keep Composer capabilities verified');
+  await composer.press('Enter');
+  await page.locator('.agent-item[data-kind="assistant"]', { hasText: 'Composer goal capability complete' }).waitFor({ timeout: 60_000 });
+  await page.locator('.agent-turn[data-status="completed"]', { hasText: 'Composer goal capability complete' }).waitFor({ timeout: 60_000 });
+  const clearedAfterGoal = await page.locator('[data-testid="composer-selections"]').count() === 0
+    && await composer.inputValue() === '';
+  const dialogCalls = await electronApplication.evaluate(() => globalThis.__limeshotComposerDialogCalls ?? []);
+
+  return {
+    menuContents,
+    recordSkillPrefilled,
+    fileAndAudioSelected: selectionText.includes('composer-attachment.txt') && selectionText.includes('source.wav'),
+    folderSelected: selectionText.includes('composer-folder'),
+    appWindowCaptured: captureSourceLabel.length > 0 && selectionText.includes(captureSourceLabel),
+    pluginSelected: selectionText.includes('Gate B Documents'),
+    planModeSelected: selectionText.includes('Plan mode'),
+    allSelectionsVisible: selectionCount === 6,
+    rendererPathsHidden,
+    dialogsOwnedByElectron: JSON.stringify(dialogCalls) === JSON.stringify(['files', 'folder']),
+    transientSelectionsClearedAfterPlan,
+    clearedAfterGoal,
+  };
+}
+
+async function selectAlternateDraftModel(page) {
+  const trigger = page.getByTestId('composer-model-trigger');
+  await trigger.click();
+  const settingsMenu = page.getByRole('menu', {
+    name: '模型和推理强度',
+    exact: true,
+  });
+  await settingsMenu.getByRole('menuitem').first().click();
+  const option = page.getByRole('menu', { name: '模型', exact: true })
+    .locator('[role="menuitemradio"][aria-checked="false"]')
+    .first();
+  if (await option.count() !== 1) throw new Error('Gate B model catalog did not expose an alternate draft model');
+  const model = await option.getAttribute('data-model');
+  if (!model) throw new Error('Gate B alternate draft model is missing its model id');
+  await option.click();
+  await settingsMenu.waitFor({ state: 'detached' });
+  await page.waitForFunction(
+    (expected) => document
+      .querySelector('[data-testid="composer-model-trigger"]')
+      ?.getAttribute('data-model') === expected,
+    model,
+  );
+}
+
 function currentPlatformKey() {
   if (process.platform === 'darwin' && process.arch === 'arm64') return 'darwin-arm64';
   if (process.platform === 'darwin' && process.arch === 'x64') return 'darwin-x64';
@@ -1651,6 +1812,14 @@ web_search = "live"
 [features]
 default_mode_request_user_input = true
 image_generation = true
+plugins = true
+remote_plugin = false
+
+[plugins."gate-b-docs@gate-b"]
+enabled = true
+
+[plugins."record-and-replay@gate-b"]
+enabled = true
 
 [model_providers.mock_provider]
 name = "LimeShot Gate B fixture"
@@ -1666,6 +1835,60 @@ args = ["${tomlString(mcpFixturePath)}"]
 startup_timeout_sec = 10
 tool_timeout_sec = 10
 `);
+}
+
+async function writeGateBPlugins(codexHome, projectRoot) {
+  const marketplaceRoot = join(projectRoot, '.agents', 'plugins');
+  const pluginRoot = join(projectRoot, 'plugins');
+  await mkdir(join(projectRoot, '.git'), { recursive: true });
+  await mkdir(marketplaceRoot, { recursive: true });
+  await mkdir(pluginRoot, { recursive: true });
+  const plugins = [
+    {
+      name: 'gate-b-docs',
+      displayName: 'Gate B Documents',
+      description: 'Use the governed document context for this turn.',
+      defaultPrompt: [],
+      skillName: 'document-context',
+      skillDescription: 'Use the selected Gate B document context.',
+    },
+    {
+      name: 'record-and-replay',
+      displayName: 'Record and replay',
+      description: 'Record a reusable workflow as a skill.',
+      defaultPrompt: ['Record a reusable skill from this workflow.'],
+      skillName: 'record-workflow',
+      skillDescription: 'Record the current workflow as a reusable skill.',
+    },
+  ];
+  await writeFile(join(marketplaceRoot, 'marketplace.json'), `${JSON.stringify({
+    name: 'gate-b',
+    plugins: plugins.map((plugin) => ({
+      name: plugin.name,
+      source: { source: 'local', path: `./plugins/${plugin.name}` },
+    })),
+  }, null, 2)}\n`, 'utf8');
+  for (const plugin of plugins) {
+    const manifest = `${JSON.stringify({
+      name: plugin.name,
+      description: plugin.description,
+      interface: {
+        displayName: plugin.displayName,
+        shortDescription: plugin.description,
+        defaultPrompt: plugin.defaultPrompt,
+      },
+    }, null, 2)}\n`;
+    const skill = `---\nname: ${plugin.skillName}\ndescription: ${plugin.skillDescription}\n---\n\n# Gate B Plugin\n\nUse this capability only for the selected Composer turn.\n`;
+    for (const root of [
+      join(pluginRoot, plugin.name),
+      join(codexHome, 'plugins', 'cache', 'gate-b', plugin.name, 'local'),
+    ]) {
+      await mkdir(join(root, '.codex-plugin'), { recursive: true });
+      await mkdir(join(root, 'skills'), { recursive: true });
+      await writeFile(join(root, '.codex-plugin', 'plugin.json'), manifest, 'utf8');
+      await writeFile(join(root, 'skills', 'SKILL.md'), skill, 'utf8');
+    }
+  }
 }
 
 function seedCodexExecHistory({ codexBinary, codexHome, cwd, prompt }) {
@@ -2151,6 +2374,8 @@ function gateBResponseEvents(index, requestBody) {
   if (index === 11) return assistantResponse('gate-b-response-11', 'gate-b-message-import', 'Imported Codex history');
   if (index === 12) return assistantResponse('gate-b-response-12', 'gate-b-message-3', 'Standalone Gate B complete');
   if (index === 13) return assistantResponse('gate-b-response-13', 'gate-b-message-4', 'Opened project complete');
+  if (index === 14) return assistantResponse('gate-b-response-14', 'gate-b-message-5', 'Composer plan capability complete');
+  if (index === 15) return assistantResponse('gate-b-response-15', 'gate-b-message-6', 'Composer goal capability complete');
   return [];
 }
 

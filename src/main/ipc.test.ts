@@ -165,7 +165,7 @@ describe('sidebar conversation IPC', () => {
     })).rejects.toThrow('所选推理强度不受当前模型支持');
   });
 
-  it('keeps attachment paths in Main and maps plugins, Goal, and Plan to native Codex input', async () => {
+  it('keeps attachment paths in Main and maps files, plugins, Goal, and Plan to native Codex input', async () => {
     const { business, codex, codexRequest } = supervisors();
     codexRequest.mockImplementation(async (method: string) => {
       if (method === 'thread/start') return {
@@ -243,7 +243,11 @@ describe('sidebar conversation IPC', () => {
       threadId: 'thread-composer',
       input: [
         { type: 'text', text: 'Ship the docs', text_elements: [] },
-        { type: 'mention', name: 'README.md', path: join(process.cwd(), 'README.md') },
+        {
+          type: 'text',
+          text: `# Files mentioned by the user:\n\n## README.md: ${join(process.cwd(), 'README.md')}\n`,
+          text_elements: [],
+        },
         { type: 'mention', name: 'Docs', path: 'plugin://docs-plugin' },
       ],
     }]);

@@ -1,7 +1,7 @@
 import { chmod, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-if (process.platform !== 'win32') {
+if (process.platform === 'darwin') {
   const root = resolve(import.meta.dirname, '../..');
   const candidates = [
     resolve(root, 'node_modules', 'node-pty', 'build', 'Release', 'spawn-helper'),
