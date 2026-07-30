@@ -29,10 +29,12 @@ const version = spawnSync(codexBinary, ['--version'], { encoding: 'utf8' });
 if (version.status !== 0 || version.stdout.trim() !== `codex-cli ${manifest.version}`) {
   throw new Error(`Codex 版本不匹配: ${version.stdout.trim() || version.stderr.trim()}`);
 }
-const shellOutputCommand = `node -e "console.log('gate-b-shell-output')"`;
-const rightTerminalCommand = `node -e "console.log('gate-b-terminal-ready')"`;
-const bottomTerminalCommand = `node -e "console.log('gate-b-bottom-terminal-ready')"`;
-const interruptCommand = `node -e "console.log('gate-b-interrupt-running');setTimeout(process.exit,30000)"`;
+const shellOutputCommand = 'echo gate-b-shell-output';
+const rightTerminalCommand = 'echo gate-b-terminal-ready';
+const bottomTerminalCommand = 'echo gate-b-bottom-terminal-ready';
+const interruptCommand = process.platform === 'win32'
+  ? 'powershell.exe -NoProfile -Command "Write-Output gate-b-interrupt-running; Start-Sleep -Seconds 30"'
+  : 'echo gate-b-interrupt-running; sleep 30';
 
 const fixture = await startResponsesFixture();
 const userData = await mkdtemp(join(tmpdir(), 'limeshot-gate-b-'));
