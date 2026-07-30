@@ -1257,7 +1257,8 @@ try {
   const userInputOutputRequest = JSON.stringify(requests[8] ?? {});
   const standaloneRequest = JSON.stringify(requests[11] ?? {});
   const openedProjectRequest = JSON.stringify(requests[12] ?? {});
-  const composerPlanRequest = JSON.stringify(requests[13] ?? {});
+  const composerPlanRequestBody = requests[13] ?? {};
+  const composerPlanRequest = JSON.stringify(composerPlanRequestBody);
   const composerGoalRequest = JSON.stringify(requests[14] ?? {});
   const evidence = await page.evaluate(() => ({
     source: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('data-runtime-source'),
@@ -1294,9 +1295,9 @@ try {
   const standaloneExcludedBusinessTools = !standaloneRequest.includes('project_read') && !standaloneRequest.includes('plan_create');
   const openedProjectAdvertisedBusinessTools = openedProjectRequest.includes('project_read') && openedProjectRequest.includes('plan_create');
   const composerProviderEvidence = {
-    fileReferenceVisible: composerPlanRequest.includes('# Files mentioned by the user:')
-      && composerPlanRequest.includes(composerFilePath)
-      && composerPlanRequest.includes(composerFolderPath),
+    fileReferenceVisible: containsText(composerPlanRequestBody, '# Files mentioned by the user:')
+      && containsText(composerPlanRequestBody, composerFilePath)
+      && containsText(composerPlanRequestBody, composerFolderPath),
     audioAttached: composerPlanRequest.includes('<audio name=')
       && (composerPlanRequest.includes('data:audio/wav;base64,')
         || composerPlanRequest.includes('audio content omitted because you do not support audio input')),
@@ -2456,6 +2457,13 @@ function responseTools(requestBody) {
 
 function responseToolNames(requestBody) {
   return responseTools(requestBody).map((tool) => tool?.namespace ? `${tool.namespace}/${tool.name}` : tool?.name ?? tool?.type);
+}
+
+function containsText(value, expected) {
+  if (typeof value === 'string') return value.includes(expected);
+  if (Array.isArray(value)) return value.some((item) => containsText(item, expected));
+  if (value && typeof value === 'object') return Object.values(value).some((item) => containsText(item, expected));
+  return false;
 }
 
 function advertisedTool(requestBody, name, namespace) {
