@@ -1,6 +1,6 @@
 # Codex Desktop 全量 UI 对齐实施进度
 
-> 状态：Composer 添加菜单、结构化附件与 Codex 能力入口已完成；Review 与 Production extension owner 保持不变
+> 状态：Composer 能力与 Production workspace 视觉/交互验收已完成；Review 与 Production extension owner 保持不变
 > 更新时间：2026-07-31
 > 固定参考：Codex Desktop `26.721.41059`
 > 稳定规范：`internal/roadmap/xuanlan/CODEX-DESKTOP-UI-PARITY.md`
@@ -103,6 +103,29 @@ Renderer semantic state
   -> core styles/i18n + extension-local styles/i18n
 ```
 
+## 2026-07-31：Production workspace 视觉与交互验收
+
+状态：已完成
+
+- 主目标：完成 production extension workspace 的 Project、Brief、Plan、Execution、Artifact、Deliverable 视觉与交互验收，保持业务 UI 与核心 Codex 壳解耦。
+- 完成结果：Project 摘要保持常驻；Brief、Plan、Execution 改为 extension 内部标签页；Execution 在桌面使用任务/产物双列、窄窗单列；核心壳不感知业务 section state。
+- 窄写集：`src/renderer/src/extensions/production/**`、本执行计划；仅在需要补行为证据时扩展到 `scripts/smoke/electron-smoke.mjs`。
+- 排除项：不修改核心 `App`、Review、Activity、Composer、preload、Electron IPC、Rust Business Service、Codex 协议和历史兼容入口；不新增动态第三方 UI 插件系统。
+- 视觉退出条件：Project/Brief/Plan/Execution/Artifact/Deliverable 均有清晰单一层级、状态和主要动作；桌面/紧凑/窄窗无重叠、无水平溢出，输入与按钮可达；业务状态不进入核心 Review/Activity。
+- 交互退出条件：Brief 保存、Plan 审批/退回、素材导入、媒体探测/转码、任务取消/重试、Artifact QA 与 Deliverable 确认均有 pending/error/success 可见反馈；现有定向测试与 Gate B 证据保持通过。
+- 验证计划：production 定向 Vitest、`npm run typecheck`、`npm run governance:ui-parity`、`npm run governance:runtime-boundary`、`npm run electron:build`、`npm run verify:gui-smoke`、`git diff --check`。
+- 设计审查：基线 Design Score `C`、AI Slop Score `A`；最终 Design Score `B`、AI Slop Score `A`。修复了单页纵向堆叠、`8-10px` 低可读正文、Brief 无脏/成功状态、Plan 退回提交空 note、raw profile/artifact/container 标识泄漏五项发现。
+- 交互结果：Brief 仅在内容变化时允许保存，并投影未保存/已保存状态；Plan 退回必须填写修改意见，可取消且空意见不能提交；审批、素材导入、探测、转码、取消、重试、QA 和交付确认继续命中原 semantic API。
+- 五语言：新增 workspace、Brief 保存、Plan 修改意见、媒体操作与 Artifact 用户语义文案，i18n key parity 测试通过；本轮真实截图语言为 `zh-CN`，其余语言的逐视口截图仍归入全量 locale 验收项。
+- Gate B：`productionWorkspaceEvidence` 的 11 项全部为 `true`，覆盖标签切换、Brief dirty/revert、Plan 修改表单、Execution 激活；业务持久化、Artifact/QA、Deliverable、重启恢复及 15 次 Provider 请求继续全绿。
+- 截图：基线 `/tmp/limeshot-production-workspace-20260731`；最终 `/tmp/limeshot-production-workspace-20260731-final`，包含 `1280x900`、`1024x768`、`768x900`、`420x900`、Plan 修改意见、Execution 与重启后完整交付终态。
+- 验证：production 定向 Vitest 5 文件 9 项、全量 Vitest 33 文件 138 项、`npm run verify:local`、`git diff --check` 全部通过；聚合门禁包含 10 项 contract、41 项 Rust、typecheck、资源/版本、UI/runtime governance、Electron build 和真实 Gate B。
+- [x] 完成三视口基线与设计审查记录。
+- [x] 完成 production extension 内视觉/交互修正。
+- [x] 完成定向测试、全量测试与真实 Electron Gate B 复验。
+- 治理分类：`current` 为 `ExtensionHost -> production -> ProductionWorkspace` 及其本地 tabs/Brief/Plan/Execution 投影；`compat`、`deprecated` 为空；同时挂载三块业务 panel、空 note 退回和 raw profile/artifact/container 文案属于 `dead`，已直接替换且无 wrapper/fallback。
+- 完成度：本切片 `100%`；全量 Codex Desktop parity 仍受 P0/P1 的真实对照截图与其余 locale 逐视口验收约束，不宣称全部完成。
+
 ## 事实源与限制
 
 - [x] 确认 `/Applications/ChatGPT.app` bundle id 为 `com.openai.codex`，版本为 `26.721.41059`。
@@ -175,8 +198,8 @@ Renderer semantic state
 ## P2：产品 Extension 与全局状态
 
 - [x] Project / Brief / Plan / Execution 从核心右栏迁入独立 production extension workspace；核心与业务 owner 已物理解耦。
-- [ ] Production workspace 内的 Project / Brief / Plan / Execution 继续完成 Codex 视觉语法和交互密度对齐。
-- [ ] Task / Artifact / QA / Deliverable / error 状态完成对齐。
+- [x] Production workspace 内的 Project / Brief / Plan / Execution 完成 Codex 视觉语法和交互密度对齐。
+- [x] Task / Artifact / QA / Deliverable / error 状态完成对齐。
 - [ ] Activity / catalog / hook / review / notice / diagnostic / realtime 完成对齐。
 - [ ] 五种 locale 和窄窗文本溢出完成验收。
 

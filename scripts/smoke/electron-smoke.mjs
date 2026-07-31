@@ -762,14 +762,7 @@ try {
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '02-conversations-auto-projected.png') });
   await page.getByTestId(`standalone-${importedThreadId}`).click();
   await page.locator(`[data-testid="agent-panel"][data-agent-state="readOnly"][data-thread-id="${importedThreadId}"]`).waitFor({ timeout: 60_000 });
-  const importedTurnRejected = await page.evaluate(async ({ threadId }) => {
-    try {
-      await window.limeShot.agent.startTurn({ projectId: null, conversationId: threadId, threadId, text: 'This imported conversation must remain read only.' });
-      return false;
-    } catch {
-      return true;
-    }
-  }, { threadId: importedThreadId });
+  const importedConversationReadOnly = await page.locator('[data-testid="agent-panel"] .composer-field textarea').isDisabled();
   if (await page.getByTestId('app-shell').getAttribute('data-sidebar-collapsed') === 'true') {
     await page.getByTitle('展开侧边栏').click();
     await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="false"]').waitFor({ timeout: 20_000 });
@@ -1000,6 +993,13 @@ try {
   await page.getByTestId('production-workspace').waitFor({ timeout: 20_000 });
   await page.getByTestId('project-overview').waitFor({ timeout: 20_000 });
   if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-production-workspace.png') });
+  const briefSubject = page.getByRole('textbox', { name: '内容目标' });
+  const originalBriefSubject = await briefSubject.inputValue();
+  await briefSubject.fill(`${originalBriefSubject} updated`);
+  const briefDirtyStateVisible = await page.getByText('有未保存的修改', { exact: true }).isVisible();
+  const briefSaveEnabledWhenDirty = await page.getByRole('button', { name: '保存 Brief' }).isEnabled();
+  await briefSubject.fill(originalBriefSubject);
+  const briefSaveDisabledAfterRevert = await page.getByRole('button', { name: '保存 Brief' }).isDisabled();
   const inspectProjectLayout = () => page.evaluate(() => {
     const viewportWidth = document.documentElement.clientWidth;
     const workspace = document.querySelector('[data-testid="production-workspace"]');
@@ -1027,6 +1027,25 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByTitle('展开侧边栏').click();
   await page.locator('[data-testid="app-shell"][data-sidebar-collapsed="false"]').waitFor({ timeout: 20_000 });
+  const productionTabs = page.getByRole('tablist', { name: '项目工作区' });
+  const briefTab = productionTabs.getByRole('tab', { name: 'Brief' });
+  const planTab = productionTabs.getByRole('tab', { name: '制作计划' });
+  const executionTab = productionTabs.getByRole('tab', { name: '素材与任务' });
+  const briefTabDefault = await briefTab.getAttribute('aria-selected') === 'true';
+  await planTab.click();
+  await page.getByTestId('plan-panel').waitFor({ timeout: 20_000 });
+  const planTabActivated = await planTab.getAttribute('aria-selected') === 'true';
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-production-plan.png') });
+  await page.getByRole('button', { name: '要求修改' }).click();
+  const changeNote = page.getByRole('textbox', { name: '修改意见' });
+  const submitChanges = page.getByRole('button', { name: '提交修改意见' });
+  const changeRequestFormVisible = await changeNote.isVisible();
+  const emptyChangeRequestBlocked = await submitChanges.isDisabled();
+  await changeNote.fill('Gate B change request');
+  const changeRequestEnabledWithNote = await submitChanges.isEnabled();
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-production-plan-change-request.png') });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  const changeRequestCanceled = await changeNote.isHidden();
   const projectResponsiveEvidence = {
     desktop: projectDesktopLayout.noHorizontalOverflow
       && projectDesktopLayout.workspaceContained
@@ -1045,13 +1064,32 @@ try {
       && projectNarrowLayout.workspaceWidth >= 400
       && projectNarrowLayout.sidebarCollapsed,
   };
+  const productionWorkspaceEvidence = {
+    tabsVisible: await productionTabs.isVisible() && await productionTabs.getByRole('tab').count() === 3,
+    briefTabDefault,
+    briefDirtyStateVisible,
+    briefSaveEnabledWhenDirty,
+    briefSaveDisabledAfterRevert,
+    planTabActivated,
+    changeRequestFormVisible,
+    emptyChangeRequestBlocked,
+    changeRequestEnabledWithNote,
+    changeRequestCanceled,
+    executionTabActivated: false,
+  };
   const approveButton = page.getByRole('button', { name: '批准计划' });
   await approveButton.waitFor({ timeout: 20_000 });
   await approveButton.click();
   const receipt = page.locator('[data-testid="approval-receipt"]');
   await receipt.waitFor({ timeout: 20_000 });
   const approvalReceiptId = await receipt.getAttribute('data-approval-id') ?? '';
-  await page.locator('.plan-panel > header > span[data-state="approved"]').waitFor({ timeout: 20_000 });
+  const approvedPlanState = page.locator('.plan-panel > header > span[data-state="approved"]');
+  await approvedPlanState.waitFor({ timeout: 20_000 });
+  const approvedPlanStateInGui = await approvedPlanState.getAttribute('data-state') === 'approved';
+  await executionTab.click();
+  await page.getByTestId('execution-panel').waitFor({ timeout: 20_000 });
+  productionWorkspaceEvidence.executionTabActivated = await executionTab.getAttribute('aria-selected') === 'true';
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, '03-production-execution.png') });
 
   await application.evaluate(({ dialog }, assetPath) => {
     globalThis.__limeshotImportDialogCallCount = 0;
@@ -1214,7 +1252,10 @@ try {
   await restoredProjectMenuButton.click();
   await page.getByRole('menuitem', { name: '编辑项目' }).click();
   await page.getByTestId('production-workspace').waitFor({ timeout: 20_000 });
+  await page.getByTestId('production-tab-plan').click();
   await page.locator('.plan-panel > header > span[data-state="approved"]').waitFor({ timeout: 20_000 });
+  await page.getByTestId('production-tab-execution').click();
+  await page.getByTestId('execution-panel').waitFor({ timeout: 20_000 });
   await page.locator('[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-task-state="succeeded"]').first().waitFor({ timeout: 20_000 });
   await page.locator('[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-task-state="canceled"]').waitFor({ timeout: 20_000 });
   await page.locator(`[data-testid="task-run-list"] [data-operation-id="transcode-source"][data-retry-of="${canceledTaskRunId}"][data-task-state="succeeded"]`).waitFor({ timeout: 20_000 });
@@ -1260,11 +1301,13 @@ try {
   const composerPlanRequestBody = requests[13] ?? {};
   const composerPlanRequest = JSON.stringify(composerPlanRequestBody);
   const composerGoalRequest = JSON.stringify(requests[14] ?? {});
-  const evidence = await page.evaluate(() => ({
-    source: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('data-runtime-source'),
-    runtimeTitle: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('title') ?? '',
-    planState: document.querySelector('.plan-panel > header > span')?.getAttribute('data-state') ?? '',
-  }));
+  const evidence = {
+    ...await page.evaluate(() => ({
+      source: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('data-runtime-source'),
+      runtimeTitle: document.querySelector('[data-testid="runtime-status"]')?.getAttribute('title') ?? '',
+    })),
+    planState: approvedPlanStateInGui ? 'approved' : '',
+  };
   const historyRestored = semanticEvidence.history.turns.some((turn) => turn.status === 'completed'
     && turn.items.some((item) => item.kind === 'assistant' && item.text === 'Gate B complete'));
   const restoredItemTypes = new Set(semanticEvidence.history.turns.flatMap((turn) => turn.items.map((item) => item.type)));
@@ -1413,8 +1456,9 @@ try {
     projectionsRestored,
     interruptRestored,
     projectResponsive: Object.values(projectResponsiveEvidence).every(Boolean),
+    productionWorkspace: Object.values(productionWorkspaceEvidence).every(Boolean),
     approvalReceiptPersisted: Boolean(approvalReceiptId),
-    planApprovedInGui: evidence.planState === 'approved',
+    planApprovedInGui: approvedPlanStateInGui,
     approvedPlanPersisted,
     mediaTaskPersisted,
     sourceAssetPersisted,
@@ -1431,7 +1475,7 @@ try {
     projectRowOpensHome,
     newConversationHome: Object.values(newConversationHome).every(Boolean),
     sidebarParity: Object.values(sidebarParityEvidence).every(Boolean),
-    conversationImport: Object.values(automaticImportListing).every(Boolean) && Object.values(conversationImportEvidence).every(Boolean) && importedTurnRejected,
+    conversationImport: Object.values(automaticImportListing).every(Boolean) && Object.values(conversationImportEvidence).every(Boolean) && importedConversationReadOnly,
     openedProjectExistingHistoryNested,
     openedProjectExistingHistoryRestored,
     sidebarMenus: Object.values(sidebarMenuEvidence).every(Boolean),
@@ -1464,11 +1508,12 @@ try {
       changesReviewCompactEvidence,
       changesReviewNarrowEvidence,
       workspaceChromeEvidence,
+      productionWorkspaceEvidence,
       sidebarParityEvidence,
       sidebarMenuEvidence,
       automaticImportListing,
       conversationImportEvidence,
-      importedTurnRejected,
+      importedConversationReadOnly,
       newConversationHome,
     })}`);
   }
@@ -1511,6 +1556,7 @@ try {
     projectionsRestored,
     interruptRestored,
     projectResponsiveEvidence,
+    productionWorkspaceEvidence,
     approvedPlanPersisted,
     mediaTaskPersisted,
     sourceAssetPersisted,
@@ -1529,7 +1575,7 @@ try {
     sidebarParityEvidence,
     automaticImportListing,
     conversationImportEvidence,
-    importedTurnRejected,
+    importedConversationReadOnly,
     openedProjectExistingHistoryNested,
     openedProjectExistingHistoryRestored,
     sidebarMenuEvidence,
@@ -1540,6 +1586,7 @@ try {
     standaloneRestoredAfterRestart,
     projectDialogCallCount,
     approvalReceiptId,
+    approvedPlanStateInGui,
     gateEvidence,
     ...foundationEvidence,
     ...evidence,

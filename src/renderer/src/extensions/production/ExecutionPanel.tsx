@@ -233,10 +233,11 @@ export function ExecutionPanel({ projectId, plans, mediaProbeReady, mediaTransco
           {blockedReason ? <p className="execution-notice">{blockedReason}</p> : null}
           {transcodeBlockedReason && !blockedReason ? <p className="execution-notice">{transcodeBlockedReason}</p> : null}
 
-          <section className="execution-history">
-            <h4><ScanSearch size={14} aria-hidden="true" />{t('execution.recentTasks')}</h4>
-            {execution.taskRuns.length === 0 ? <p className="execution-empty">{t('execution.noTasks')}</p> : (
-              <ul data-testid="task-run-list">
+          <div className="execution-result-grid">
+            <section className="execution-history">
+              <h4><ScanSearch size={14} aria-hidden="true" />{t('execution.recentTasks')}</h4>
+              {execution.taskRuns.length === 0 ? <p className="execution-empty">{t('execution.noTasks')}</p> : (
+                <ul data-testid="task-run-list">
                 {execution.taskRuns.slice(0, 4).map((task) => {
                   const job = execution.mediaJobs.find((candidate) => candidate.mediaJobId === task.mediaJobId);
                   const cancelable = ['queued', 'running'].includes(task.state);
@@ -255,7 +256,7 @@ export function ExecutionPanel({ projectId, plans, mediaProbeReady, mediaTransco
                       data-progress={job?.progressPercent ?? 0}
                       data-error-code={task.errorCode ?? ''}
                     >
-                      <span>{task.operationId}</span>
+                      <span>{operationLabel(job?.operation, task.operationId, t)}</span>
                       <div className="task-status">
                         {job && cancelable ? <small>{job.progressPercent}%</small> : null}
                         <strong className={task.errorCode === 'MEDIA_QA_FAILED' ? 'qa-failed' : undefined}>
@@ -295,9 +296,9 @@ export function ExecutionPanel({ projectId, plans, mediaProbeReady, mediaTransco
                     </li>
                   );
                 })}
-              </ul>
-            )}
-          </section>
+                </ul>
+              )}
+            </section>
 
           <section className="execution-history">
             <h4>{t('execution.artifacts')}</h4>
@@ -315,7 +316,7 @@ export function ExecutionPanel({ projectId, plans, mediaProbeReady, mediaTransco
                       data-task-run-id={artifact.lineage.taskRunId}
                       data-qa-state={qa ? (qa.passed ? 'passed' : 'failed') : 'none'}
                     >
-                      <span>{artifact.artifactType}</span>
+                      <span>{artifactLabel(artifact.artifactType, t)}</span>
                       <div className="artifact-status">
                         {qa ? (
                           <strong className={qa.passed ? 'qa-passed' : 'qa-failed'}>
@@ -340,13 +341,13 @@ export function ExecutionPanel({ projectId, plans, mediaProbeReady, mediaTransco
                           </button>
                         ) : null}
                       </div>
-                      <small>{formatDuration(artifact.media.durationMs)} · {artifact.media.container} · {artifact.media.streams.length} {t('execution.streams')}</small>
+                      <small>{formatDuration(artifact.media.durationMs)} · {formatContainer(artifact.media.container)} · {artifact.media.streams.length} {t('execution.streams')}</small>
                     </li>
                   );
                 })}
               </ul>
             )}
-          </section>
+            </section>
 
           <section className="execution-history">
             <h4><PackageCheck size={14} aria-hidden="true" />{t('execution.deliverables')}</h4>
@@ -363,17 +364,39 @@ export function ExecutionPanel({ projectId, plans, mediaProbeReady, mediaTransco
                     {deliverable.isCurrent ? (
                       <strong className="deliverable-current"><BadgeCheck size={12} aria-hidden="true" />{t('execution.current')}</strong>
                     ) : <strong>{formatDuration(deliverable.media.durationMs)}</strong>}
-                    <small>{deliverable.media.container} · {deliverable.media.streams.length} {t('execution.streams')}</small>
+                    <small>{formatContainer(deliverable.media.container)} · {deliverable.media.streams.length} {t('execution.streams')}</small>
                   </li>
                 ))}
               </ul>
             )}
-          </section>
+            </section>
+          </div>
         </>
       )}
       {errorMessage ? <p className="inline-error" role="alert">{errorMessage}</p> : null}
     </section>
   );
+}
+
+function operationLabel(operation: string | undefined, fallback: string, t: (key: TranslationKey) => string) {
+  if (operation === 'media_probe') return t('execution.operation.probe');
+  if (operation === 'media_transcode') return t('execution.operation.transcode');
+  if (fallback === 'probe-source') return t('execution.operation.probe');
+  if (fallback === 'transcode-source') return t('execution.operation.transcode');
+  return t('execution.operation.other');
+}
+
+function artifactLabel(artifactType: string, t: (key: TranslationKey) => string) {
+  if (artifactType === 'media-manifest.v1') return t('execution.artifact.mediaManifest');
+  if (artifactType === 'media-output.v1') return t('execution.artifact.mediaOutput');
+  if (artifactType === 'qa-report.v1') return t('execution.artifact.qaReport');
+  return t('execution.artifact.other');
+}
+
+function formatContainer(container: string) {
+  const formats = container.split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
+  if (formats.includes('mp4')) return 'MP4';
+  return formats[0]?.toUpperCase() ?? container;
 }
 
 function AssetSummary({ asset, t }: { asset: SourceAsset; t: (key: TranslationKey) => string }) {

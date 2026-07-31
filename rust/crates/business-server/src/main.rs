@@ -16,7 +16,7 @@ use business_protocol::{
     RESOURCE_LIST, SERVICE_LIST, SKILL_LIST, SOURCE_ASSET_IMPORT, ShutdownResult,
     SourceAssetImportParams, TASK_CANCEL, TASK_RETRY, TASK_START, TOOL_CALL, TOOL_CATALOG_LIST,
     TaskCancelParams, TaskRetryParams, TaskStartParams, ToolCallParams, error_response,
-    parse_incoming, result_response,
+    parse_incoming, result_response, tool_text,
 };
 use clap::Parser;
 use serde::{Serialize, de::DeserializeOwned};
@@ -196,13 +196,25 @@ async fn route_request(
         DELIVERABLE_CONFIRM => domain(request, |params: DeliverableConfirmParams| {
             core.confirm_deliverable(params)
         }),
-        TOOL_CALL => domain(request, |params: ToolCallParams| core.call_tool(params)),
+        TOOL_CALL => tool_call(request, core),
         BUSINESS_SHUTDOWN => {
             core.shutdown_tasks();
             let _ = shutdown_tx.send(()).await;
             result_response(request.id.clone(), &ShutdownResult { accepted: true })
         }
         _ => error_response(request.id.clone(), -32601, "Method not found", None),
+    }
+}
+
+fn tool_call(request: &JsonRpcRequest, core: &BusinessCore) -> JsonRpcResponse {
+    let params: ToolCallParams = match serde_json::from_value(request.params.clone()) {
+        Ok(params) => params,
+        Err(_) => return error_response(request.id.clone(), -32602, "Invalid params", None),
+    };
+    match core.call_tool(params) {
+        Ok(result) => result_response(request.id.clone(), &result),
+        // Tool execution failures are data in the tool contract, not transport failures.
+        Err(error) => result_response(request.id.clone(), &tool_text(false, error.message())),
     }
 }
 

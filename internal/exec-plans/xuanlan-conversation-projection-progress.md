@@ -364,7 +364,7 @@ Phase B 已完成：18 类 ItemRenderer 已接入真实对话页并保持 `Turn.
 - 自动归组、侧栏与时间线相关测试通过；当前工作树全量 Vitest 为 19 个文件、97 项通过。
 - `npm run test:contracts`：协议生成物同步后通过，2 个文件、8 项通过；相关 Rust 4 个 package、24 项通过。
 - Electron Main/Preload/Renderer production build：通过。
-- `npm run verify:gui-smoke`：固定 Codex `0.145.0`、Business protocol v5、13 次 Responses 请求，全部 `gateEvidence` 为 `true`；其中 `automaticImportListing`、`conversationImport`、`importedTurnRejected`、`importedConversationRestoredAfterRestart` 均为 `true`。
+- `npm run verify:gui-smoke`：固定 Codex `0.145.0`、Business protocol v5、13 次 Responses 请求，全部 `gateEvidence` 为 `true`；其中 `automaticImportListing`、`conversationImport`、`importedConversationReadOnly`、`importedConversationRestoredAfterRestart` 均为 `true`。只读 `turn:start` 的拒绝由 `src/main/ipc.test.ts` 覆盖，Gate B 不再向 Electron handler 注入预期异常。
 
 ## 分类
 

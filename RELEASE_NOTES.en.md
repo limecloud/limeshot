@@ -25,6 +25,12 @@ Release date: 2026-07-31
 - Keeps Rust Business Service as the sole owner of Projects, business approvals, Tasks, Providers, Costs, Artifacts, Deliverables, and media execution. Codex App Server remains the sole Agent Runtime.
 - Adds the LimeCore/AsterRouter cloud multi-model target architecture document, but that path remains Target and is not delivered by this release.
 
+### Fixes in This Refresh
+
+- Corrects Rust Business Service `tool/call` lowering: business-tool rejections now return structured `success=false` tool results instead of JSON-RPC transport errors that polluted Codex logs.
+- Corrects the Gate B read-only conversation check so GUI read-only state and Main IPC unit coverage prove the boundary without injecting an expected exception into the Electron handler.
+- Completes Production workspace Brief dirty/saved feedback, Plan change-note validation, Execution task/media summaries, five-locale copy, and real Electron evidence.
+
 ### Platform and packaging
 
 - Adds `@xterm/xterm`, `@xterm/addon-fit`, and `node-pty`, preparing native PTY resources for the current Electron ABI during install, release builds, and Forge ASAR packaging.

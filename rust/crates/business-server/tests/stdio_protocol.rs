@@ -71,6 +71,80 @@ fn standard_json_rpc_serves_business_state_without_agent_methods() {
             .len(),
         5
     );
+    let workspace = root.join("workspace");
+    fs::create_dir_all(&workspace).expect("workspace");
+    let project = request(
+        &mut stdin,
+        &mut stdout,
+        json!({
+            "jsonrpc":"2.0",
+            "id":"project",
+            "method":"project/create",
+            "params":{
+                "name":"Tool result project",
+                "profileId":"general",
+                "workspacePath":workspace,
+                "brief":{
+                    "subject":"Tool result",
+                    "audience":"Test",
+                    "platform":"desktop",
+                    "targetDurationSeconds":1,
+                    "aspectRatio":"16:9",
+                    "language":"en-US",
+                    "style":"",
+                    "mustInclude":[],
+                    "prohibited":[],
+                    "deliveryFormat":"mp4"
+                }
+            }
+        }),
+    );
+    let project_id = project["result"]["project"]["projectId"]
+        .as_str()
+        .expect("project id");
+    let _binding = request(
+        &mut stdin,
+        &mut stdout,
+        json!({
+            "jsonrpc":"2.0",
+            "id":"binding",
+            "method":"conversation/bind",
+            "params":{
+                "projectId":project_id,
+                "conversationId":"conversation-1",
+                "codexThreadId":"thread-1",
+                "expectedCodexThreadId":null
+            }
+        }),
+    );
+    let tool_failure = request(
+        &mut stdin,
+        &mut stdout,
+        json!({
+            "jsonrpc":"2.0",
+            "id":"tool-failure",
+            "method":"tool/call",
+            "params":{
+                "context":{
+                    "projectId":project_id,
+                    "conversationId":"conversation-1",
+                    "threadId":"thread-1",
+                    "turnId":"turn-1",
+                    "callId":"call-1"
+                },
+                "tool":"plan_create",
+                "arguments":{"title":""}
+            }
+        }),
+    );
+    assert!(tool_failure.get("error").is_none());
+    assert_eq!(tool_failure["result"]["success"], false);
+    assert!(
+        tool_failure["result"]["contentItems"][0]["text"]
+            .as_str()
+            .expect("tool failure text")
+            .contains("计划参数不符合 schema")
+    );
     let agent_method = request(
         &mut stdin,
         &mut stdout,

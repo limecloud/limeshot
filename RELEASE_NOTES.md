@@ -25,6 +25,12 @@
 - Rust Business Service 继续是 Project、业务审批、Task、Provider、Cost、Artifact、Deliverable 与媒体执行的唯一 owner；Codex App Server 继续是唯一 Agent Runtime。
 - 新增 LimeCore/AsterRouter 云端多模型目标架构文档，但该链路仍为 Target，不属于本版本已交付能力。
 
+### 本次修复
+
+- 修正 Rust Business Service 的 `tool/call` 错误降级：业务工具拒绝现在作为 `success=false` 的结构化 tool result 返回，不再错误升级为 JSON-RPC transport error 并污染 Codex 日志。
+- 修正 Gate B 的只读会话验证路径，改由 GUI 只读状态和 Main IPC 单测分别证明，避免测试向 Electron handler 注入预期异常。
+- Production workspace 补齐 Brief 未保存/已保存状态、Plan 修改意见校验、Execution 任务与媒体产物摘要，并增加五语言文案和真实 Electron 证据。
+
 ### 平台与打包
 
 - 新增 `@xterm/xterm`、`@xterm/addon-fit` 和 `node-pty`，并在安装、release build 与 Forge ASAR 中准备当前 Electron ABI 对应的原生 PTY 资源。

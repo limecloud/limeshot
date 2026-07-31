@@ -171,6 +171,9 @@ describe('ExecutionPanel', () => {
     }));
 
     expect(await screen.findAllByText('QA 通过')).toHaveLength(2);
+    expect(screen.getAllByText('媒体成片')).toHaveLength(1);
+    expect(screen.getAllByText(/1s · MP4 · 1 个媒体流/)).toHaveLength(2);
+    expect(screen.queryByText('media-output.v1')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '确认交付' }));
     await waitFor(() => expect(confirm).toHaveBeenCalledWith({ projectId: 'project-1', artifactId: 'artifact-output' }));
   });
